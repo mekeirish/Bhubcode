@@ -299,6 +299,11 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 
 .action-btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; }
 .btn-flash-red{ animation: flashRed 0.6s infinite !important; }
+.repo-item.repo-busy{ animation: repoBusyBlink .8s infinite; }
+@keyframes repoBusyBlink{
+  0%,100%{ border-color:rgba(239,68,68,1); box-shadow: 0 0 0 1px rgba(239,68,68,.7), 0 0 18px rgba(239,68,68,.6); }
+  50%{ border-color:rgba(239,68,68,.15); box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 4px 16px rgba(0,0,0,.25); }
+}
 @keyframes flashRed {
   0%,100% { background: rgba(255,255,255,.035); color:#cbd5e1; box-shadow: none; }
   50% { background: #ef4444; color:#fff; box-shadow: 0 0 20px rgba(239,68,68,.8); }
@@ -603,6 +608,11 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 }
 .editor-save:disabled{ opacity:.5; cursor:not-allowed; }
 .editor-close{ background:rgba(255,255,255,.05); color:#94a3b8; border-color:rgba(255,255,255,.08); }
+.editor-download{
+  width:100%; flex:0 0 auto;
+  background:rgba(34,197,94,.08); color:#86efac;
+  border-color:rgba(34,197,94,.3);
+}
 
 /* ========================================================= MODALE NEW FILE ========================================================= */
 .new-file-inputs{
@@ -846,6 +856,8 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
             <button class="editor-btn editor-save" id="editorSaveBtn" onclick="saveEditor()">💾 Enregistrer</button>
             <button class="editor-btn editor-close" onclick="closeEditor()">✕ Fermer</button>
         </div>
+
+        <button class="editor-btn editor-download" id="editorDownloadBtn" onclick="downloadEditorFile()">⬇️ Télécharger</button>
     </div>
 </div>
 
@@ -982,6 +994,12 @@ async function ghFetch(url, options = {}) {
   try {
     const resp = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeout);
+    if (options.method === 'PUT' && resp.ok) {
+      try {
+        const m = String(url).match(/\/repos\/([^/]+)\/([^/]+)\/contents\//);
+        if (m) watchPagesDeploy(m[1], m[2], resp.clone());
+      } catch (e) {}
+    }
     return resp;
   } catch (e) {
     clearTimeout(timeout);
@@ -1208,6 +1226,7 @@ async function loadFilesForRepo(owner, repo, branch, tok) {
 }
 
 async function loadFilesForVisibleRepos() {
+  refreshBusyRepos();
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) return;
   const promises = allRepositories.map(repo =>
@@ -1308,6 +1327,62 @@ function disableBackBtn(repoName, disabled) {
   const btn = document.querySelector('#repo-' + repoName + ' .btn-back');
   if (btn) btn.disabled = disabled;
 }
+let repoBusyCount = {};
+function setRepoBusy(repoName, busy) {
+  const n = (repoBusyCount[repoName] || 0) + (busy ? 1 : -1);
+  repoBusyCount[repoName] = n > 0 ? n : 0;
+  const el = byId('repo-' + repoName);
+  if (el) el.classList.toggle('repo-busy', repoBusyCount[repoName] > 0);
+}
+function refreshBusyRepos() {
+  Object.keys(repoBusyCount).forEach(name => {
+    const el = byId('repo-' + name);
+    if (el) el.classList.toggle('repo-busy', repoBusyCount[name] > 0);
+  });
+}
+let pagesWatch = {};
+function watchPagesDeploy(owner, repo, putResp) {
+  const key = owner + '/' + repo;
+  const shaPromise = putResp.json()
+    .then(d => (d && d.commit && d.commit.sha) || null)
+    .catch(() => null);
+  const running = pagesWatch[key];
+  if (running) {
+    shaPromise.then(sha => { if (sha) running.sha = sha; });
+    return;
+  }
+  const state = { sha: null };
+  pagesWatch[key] = state;
+  setRepoBusy(repo, true);
+  runPagesWatch(owner, repo, key, state, shaPromise);
+}
+async function runPagesWatch(owner, repo, key, state, shaPromise) {
+  const tok = store.getItem(LS_KEYS.TOKEN);
+  try {
+    const first = await shaPromise;
+    if (first) state.sha = first;
+    addLog(repo, 'Attente du déploiement GitHub Pages...', 'loading');
+    for (let i = 1; i <= 60; i++) {
+      await new Promise(r => setTimeout(r, 4000));
+      const resp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/pages/builds/latest', {
+        headers: { 'Authorization': 'token ' + tok }
+      });
+      if (resp.status === 404) { addLog(repo, 'Pages non activé', 'warning'); return; }
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const isTarget = !state.sha || data.commit === state.sha || i > 15;
+      if (!isTarget) continue;
+      if (data.status === 'errored') { addLog(repo, '❌ Build GitHub Pages en erreur', 'error'); return; }
+      if (data.status === 'built') { addLog(repo, '✅ GitHub Pages à jour, prêt à voir', 'success'); return; }
+    }
+    addLog(repo, 'Déploiement trop long, surveillance arrêtée', 'warning');
+  } catch (e) {
+    addLog(repo, 'Surveillance Pages interrompue : ' + e.message, 'warning');
+  } finally {
+    delete pagesWatch[key];
+    setRepoBusy(repo, false);
+  }
+}
 
 /* ========================================================= MODE UP ========================================================= */
 function toggleUpMode(buttonEl, repoName) {
@@ -1349,6 +1424,7 @@ async function handleFileAction(owner, repo, filename, branch, buttonElement) {
 async function pasteToGitFile(owner, repo, filename, branch, buttonElement) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  setRepoBusy(repo, true);
   buttonElement.classList.add('btn-flash-red');
   setActivityState(true, 'UP ' + filename.toUpperCase());
   showTracker(repo);
@@ -1404,6 +1480,7 @@ async function pasteToGitFile(owner, repo, filename, branch, buttonElement) {
     buttonElement.classList.remove('btn-flash-red');
     disableUpModeForRepo(repo);
     setActivityState(false);
+    setRepoBusy(repo, false);
   }
 }
 
@@ -1427,6 +1504,7 @@ function uploadIcon(owner, repo, branch) {
 async function pushIconToRepo(owner, repo, branch, base64Data) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  setRepoBusy(repo, true);
   setActivityState(true, 'ICON');
   showTracker(repo);
   addLog(repo, 'Upload icône vers ' + owner + '/' + repo + '...', 'step');
@@ -1453,13 +1531,16 @@ async function pushIconToRepo(owner, repo, branch, base64Data) {
   } catch (err) {
     addLog(repo, 'ERREUR : ' + err.message, 'error');
     showNotification('Échec upload : ' + err.message, 'danger');
-  } finally { setActivityState(false); }
+  } finally {
+    setActivityState(false);
+    setRepoBusy(repo, false);
+  }
 }
 
-/* ========================================================= INJECT PWA ========================================================= */
 async function injectPwaToRepo(owner, repo, branch) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  setRepoBusy(repo, true);
   clearTracker(repo); showTracker(repo);
   setActivityState(true, 'INJECT');
   addLog(repo, 'Début injection PWA sur ' + owner + '/' + repo, 'step');
@@ -1538,6 +1619,7 @@ async function injectPwaToRepo(owner, repo, branch) {
     showNotification('Échec injection : ' + err.message, 'danger');
   } finally {
     setActivityState(false);
+    setRepoBusy(repo, false);
   }
 }
 
@@ -1655,6 +1737,7 @@ async function rollbackToCommit(owner, repo, branch, targetSha, tok, logRepo) {
 async function revertToPreviousCommit(owner, repo, defaultBranch) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  setRepoBusy(repo, true);
   clearTracker(repo); showTracker(repo);
   disableBackBtn(repo, true);
   setActivityState(true, 'ROLLBACK');
@@ -1738,13 +1821,14 @@ async function revertToPreviousCommit(owner, repo, defaultBranch) {
   } finally {
     disableBackBtn(repo, false);
     setActivityState(false);
+    setRepoBusy(repo, false);
   }
 }
 
-/* ========================================================= DELETE ========================================================= */
 async function deleteRepository(owner, repoName) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   hideConfirmPanel(repoName);
+  setRepoBusy(repoName, true);
   setActivityState(true, 'DELETE');
   try {
     const r = await ghFetch(GH_API + '/repos/' + owner + '/' + repoName, {
@@ -1759,7 +1843,10 @@ async function deleteRepository(owner, repoName) {
       updateRepoCount();
     } else throw new Error('Droits insuffisants');
   } catch(e) { showNotification(e.message, 'danger'); }
-  finally { setActivityState(false); }
+  finally {
+    setActivityState(false);
+    setRepoBusy(repoName, false);
+  }
 }
 
 /* ========================================================= COPY / VIEW ========================================================= */
@@ -2121,6 +2208,8 @@ async function saveEditor() {
   statusEl.style.color = '#fcd34d';
   statusEl.textContent = 'Enregistrement...';
   saveBtn.disabled = true;
+  const busyRepo = editorState.repo;
+  setRepoBusy(busyRepo, true);
 
   try {
     const getR = await ghFetch(GH_API + '/repos/' + editorState.owner + '/' + editorState.repo + '/contents/' + editorState.filename + '?ref=' + editorState.branch, {
@@ -2151,7 +2240,49 @@ async function saveEditor() {
     statusEl.style.color = '#f87171';
     statusEl.textContent = 'Erreur : ' + e.message;
     showNotification('Échec : ' + e.message, 'danger');
-  } finally { saveBtn.disabled = false; }
+  } finally {
+    saveBtn.disabled = false;
+    setRepoBusy(busyRepo, false);
+  }
+}
+function downloadEditorFile() {
+  if (!editorState.filename) return;
+  const filename = editorState.filename;
+  const content = byId('editorTextarea').value;
+
+  // 1) Menu de partage natif (fiable sur mobile et en PWA)
+  try {
+    const file = new File([content], filename, { type: 'text/plain' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: filename })
+        .then(() => showNotification(filename + ' partagé', 'success'))
+        .catch((err) => {
+          if (err && err.name === 'AbortError') return;
+          downloadViaLink(filename, content);
+        });
+      return;
+    }
+  } catch (e) {}
+
+  // 2) Secours : téléchargement classique
+  downloadViaLink(filename, content);
+}
+function downloadViaLink(filename, content) {
+  const blob = new Blob([content], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.position = 'fixed';
+  a.style.left = '-9999px';
+  a.style.top = '0';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 10000);
+  showNotification(filename + ' téléchargé', 'success');
 }
 
 /* ========================================================= NEW FILE ========================================================= */
@@ -2199,6 +2330,8 @@ async function saveNewFile() {
   statusEl.style.color = '#fcd34d';
   statusEl.textContent = 'Enregistrement...';
   saveBtn.disabled = true;
+  const busyRepo = newFileState.repo;
+  setRepoBusy(busyRepo, true);
 
   try {
     let existingSha = null;
@@ -2259,6 +2392,7 @@ async function saveNewFile() {
     showNotification('Échec : ' + e.message, 'danger');
   } finally {
     saveBtn.disabled = false;
+    setRepoBusy(busyRepo, false);
   }
 }
 
