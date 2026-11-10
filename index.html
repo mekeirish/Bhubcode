@@ -49,14 +49,13 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   display:flex; flex-direction:column; overflow:hidden;
 }
 .glass{
-  background: linear-gradient(145deg, rgba(255,255,255,.075), rgba(255,255,255,.025));
-  border:1px solid rgba(255,255,255,.075);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 18px 50px rgba(0,0,0,.28);
+  background: linear-gradient(145deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+  border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
 }
 .glass-accent{
-  border:1px solid rgba(34,197,94,.25);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 1px rgba(34,197,94,.05), 0 18px 50px rgba(0,0,0,.28), 0 0 40px rgba(34,197,94,.08);
+  border:1px solid rgba(34,197,94,.3);
+  background: linear-gradient(145deg, rgba(34,197,94,.04), rgba(255,255,255,.01));
 }
 
 /* ========================================================= HEADER ========================================================= */
@@ -69,9 +68,8 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 .brand-logo{
   width:32px; height:32px; flex:0 0 32px; border-radius:10px;
   display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;
-  background: linear-gradient(145deg, rgba(34,197,94,.3), rgba(255,255,255,.025));
-  border:1px solid rgba(255,255,255,.09);
-  box-shadow: 0 0 25px rgba(34,197,94,.2), inset 0 1px rgba(255,255,255,.08);
+  background: linear-gradient(145deg, rgba(34,197,94,.2), rgba(255,255,255,.02));
+  border:1px solid rgba(34,197,94,.4);
 }
 .brand-logo::after{
   content:""; position:absolute; inset:-50%;
@@ -90,10 +88,10 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   font-size:6px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
   color:#64748b;
 }
-.status-badge .dot{ width:5px; height:5px; border-radius:50%; background:#22c55e; box-shadow: 0 0 4px #22c55e, 0 0 8px rgba(34,197,94,.6); transition:.3s ease; }
-.status-badge.active .dot{ background:#facc15; box-shadow: 0 0 4px #facc15, 0 0 8px rgba(250,204,21,.6); animation: badgeBlink 1s infinite; }
+.status-badge .dot{ width:6px; height:6px; border-radius:50%; background:#22c55e; transition:.3s ease; }
+.status-badge.active .dot{ background:#facc15; animation: badgeBlink 1.2s infinite; }
 .status-badge.active{ color:#fcd34d; border-color:rgba(250,204,21,.2); }
-.status-badge.err .dot{ background:#ef4444; box-shadow: 0 0 4px #ef4444, 0 0 8px rgba(239,68,68,.6); }
+.status-badge.err .dot{ background:#ef4444; }
 .status-badge.err{ color:#fca5a5; border-color:rgba(239,68,68,.2); }
 @keyframes badgeBlink{ 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
 .header-btn{
@@ -107,15 +105,15 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 
 .save-indicator{
   position:absolute; top:-2px; left:-2px;
-  width:8px; height:8px; border-radius:50%;
-  background:#22c55e; box-shadow: 0 0 6px #22c55e;
+  width:6px; height:6px; border-radius:50%;
+  background:#22c55e;
   opacity:0; transition:.3s ease;
 }
 .save-indicator.show{ opacity:1; }
 
 /* ========================================================= MAIN ========================================================= */
 .main{ flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; overflow:hidden; }
-.card{ border-radius:16px; padding:10px; flex:0 0 auto; }
+.card{ border-radius:18px; padding:12px; flex:0 0 auto; }
 
 .section-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
 .section-title{ font-size:7px; text-transform:uppercase; letter-spacing:.17em; color:#64748b; font-weight:800; }
@@ -124,12 +122,12 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 .token-row{ display:grid; grid-template-columns:minmax(0,1fr) 42px 42px; gap:5px; width:100%; }
 .field{
   width:100%; min-width:0; height:42px; border-radius:11px;
-  background:rgba(0,0,0,.3); border:1px solid rgba(255,255,255,.08);
+  background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.08);
   color:#f8fafc; outline:none; padding:0 12px; font-size:12px;
   transition:.2s ease; overflow:hidden; text-overflow:ellipsis;
 }
 .field::placeholder{ color:#475569; }
-.field:focus{ border-color:rgba(34,197,94,.65); box-shadow:0 0 0 2px rgba(34,197,94,.1); }
+.field:focus{ border-color:rgba(34,197,94,.7); background:rgba(0,0,0,.6); }
 .small-btn{
   height:42px; border-radius:11px; display:flex; align-items:center; justify-content:center;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.06);
@@ -139,25 +137,25 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 .small-btn:active{ transform:scale(.94); background:rgba(255,255,255,.08); }
 
 .btn-load{
-  width:100%; height:52px; border-radius:14px; margin-top:8px;
+  width:100%; height:48px; border-radius:12px; margin-top:8px;
   color:white; font-weight:800; font-size:11px; letter-spacing:.08em;
   display:flex; align-items:center; justify-content:center; gap:8px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  border:1px solid rgba(74,222,128,.4);
-  box-shadow: 0 10px 28px rgba(34,197,94,.35), inset 0 1px 0 rgba(255,255,255,.15);
+  background: rgba(34,197,94,.12);
+  border:1px solid rgba(34,197,94,.4);
+  color:#4ade80;
   transition:.15s ease;
 }
-.btn-load:active{ transform:scale(.97); box-shadow: 0 6px 18px rgba(34,197,94,.35); }
+.btn-load:active{ transform:scale(.98); background:rgba(34,197,94,.22); }
 .btn-load:disabled{ opacity:.6; cursor:not-allowed; }
 
 .search-field{
-  width:100%; height:42px; border-radius:12px; margin-bottom:8px;
-  background:rgba(0,0,0,.32); border:1px solid rgba(255,255,255,.075);
-  color:#f8fafc; outline:none; padding:0 42px 0 38px; font-size:12px;
+  width:100%; height:40px; border-radius:11px; margin-bottom:8px;
+  background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.08);
+  color:#f8fafc; outline:none; padding:0 38px 0 36px; font-size:12px;
   transition:.2s ease;
 }
 .search-field::placeholder{ color:#475569; }
-.search-field:focus{ border-color:rgba(34,197,94,.65); box-shadow:0 0 0 2px rgba(34,197,94,.08); }
+.search-field:focus{ border-color:rgba(34,197,94,.7); background:rgba(0,0,0,.6); }
 .search-wrap{ position:relative; }
 .search-icon{
   position:absolute; left:12px; top:50%; transform:translateY(-50%);
@@ -185,11 +183,10 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 
 /* ========================================================= REPO CARD ========================================================= */
 .repo-item{
-  border-radius:14px; padding:10px;
-  background: linear-gradient(145deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-  border:1px solid rgba(255,255,255,.075);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 4px 16px rgba(0,0,0,.25);
-  display:flex; flex-direction:column; gap:8px;
+  border-radius:16px; padding:12px;
+  background: rgba(255,255,255,.025);
+  border:1px solid rgba(255,255,255,.07);
+  display:flex; flex-direction:column; gap:10px;
   transition:.2s ease;
 }
 .repo-header{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 2px; }
@@ -265,16 +262,16 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   border-top:1px solid rgba(255,255,255,.05);
 }
 .action-btn{
-  min-height:40px; padding:4px 1px;
-  border-radius:9px; border:1px solid rgba(255,255,255,.06);
-  background: rgba(255,255,255,.035);
+  min-height:38px; padding:4px 1px;
+  border-radius:9px; border:1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.025);
   color:#cbd5e1; font-weight:800;
   display:flex; align-items:center; justify-content:center;
   transition:.15s ease;
   min-width:0;
   overflow:hidden;
   font-size:7.5px;
-  letter-spacing:.02em;
+  letter-spacing:.01em;
   text-transform:uppercase;
   text-align:center;
   line-height:1.15;
@@ -286,27 +283,27 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 .btn-inject:active{ background:rgba(250,204,21,.15); }
 .btn-up{ color:#94a3b8; }
 .btn-up-active{
-  background: linear-gradient(135deg, #22c55e, #16a34a) !important;
-  color:#fff !important;
-  border-color: transparent !important;
-  box-shadow: 0 0 15px rgba(34,197,94,.6), inset 0 1px 0 rgba(255,255,255,.3) !important;
+  background: rgba(34,197,94,.2) !important;
+  color:#86efac !important;
+  border-color: rgba(34,197,94,.6) !important;
 }
 .btn-icon{ color:#c4b5fd; border-color:rgba(196,181,253,.25); background:rgba(196,181,253,.06); }
 .btn-new{ color:#f9a8d4; border-color:rgba(249,168,212,.25); background:rgba(249,168,212,.06); }
 .btn-view{ color:#86efac; border-color:rgba(134,239,172,.25); background:rgba(134,239,172,.06); }
 .btn-back{ color:#fb923c; border-color:rgba(251,146,60,.25); background:rgba(251,146,60,.06); }
 .btn-sup{ color:#f87171; border-color:rgba(248,113,113,.25); background:rgba(248,113,113,.06); }
+.btn-dup{ color:#c084fc; border-color:rgba(192,132,252,.25); background:rgba(192,132,252,.06); }
 
 .action-btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; }
 .btn-flash-red{ animation: flashRed 0.6s infinite !important; }
 .repo-item.repo-busy{ animation: repoBusyBlink .8s infinite; }
 @keyframes repoBusyBlink{
-  0%,100%{ border-color:rgba(239,68,68,1); box-shadow: 0 0 0 1px rgba(239,68,68,.7), 0 0 18px rgba(239,68,68,.6); }
-  50%{ border-color:rgba(239,68,68,.15); box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 4px 16px rgba(0,0,0,.25); }
+  0%,100%{ border-color:rgba(239,68,68,1); }
+  50%{ border-color:rgba(239,68,68,.2); }
 }
 @keyframes flashRed {
-  0%,100% { background: rgba(255,255,255,.035); color:#cbd5e1; box-shadow: none; }
-  50% { background: #ef4444; color:#fff; box-shadow: 0 0 20px rgba(239,68,68,.8); }
+  0%,100% { background: rgba(255,255,255,.035); color:#cbd5e1; }
+  50% { background: rgba(239,68,68,.3); color:#fff; border-color:rgba(239,68,68,.7); }
 }
 
 /* ========================================================= CONFIRM PANEL ========================================================= */
@@ -464,20 +461,19 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 /* ========================================================= MODALE ÉDITEUR ========================================================= */
 .editor-modal{
   display:none; position:fixed; inset:0; z-index:10000;
-  background:rgba(0,0,0,.72);
-  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  background:rgba(0,0,0,.85);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   align-items:center; justify-content:center;
-  padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+  padding: max(6px, env(safe-area-inset-top)) 6px max(6px, env(safe-area-inset-bottom));
 }
 .editor-modal.visible{ display:flex; }
 .editor-panel{
-  background: linear-gradient(180deg, rgba(15,18,25,.98), rgba(10,12,18,.99));
-  border:1px solid rgba(34,197,94,.15);
+  background: #090d14;
+  border:1px solid rgba(34,197,94,.25);
   border-radius:18px;
-  width:100%; max-width:680px; height:min(94dvh, 900px);
+  width:100%; max-width:680px; height:min(96dvh, 920px);
   display:flex; flex-direction:column; gap:8px;
   padding:12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.75), 0 0 0 1px rgba(34,197,94,.05);
 }
 .editor-header{
   display:flex; justify-content:space-between; align-items:center;
@@ -488,7 +484,7 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   color:#86efac; gap:8px; flex-shrink:0;
 }
 .editor-title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:68%; }
-.editor-status{ font-size:9px; color:#64748b; text-transform:none; letter-spacing:0; font-weight:600; }
+.editor-status{ font-size:9px; color:#64748b; text-transform:none; letter-spacing:0; font-weight:600; display:flex; align-items:center; gap:6px; }
 
 .editor-searchbar{
   display:flex; align-items:center; gap:5px;
@@ -602,9 +598,8 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 }
 .editor-btn:active{ transform:scale(.97); }
 .editor-save{
-  background:linear-gradient(135deg, #22c55e, #16a34a);
-  color:#fff; border-color:transparent;
-  box-shadow:0 8px 24px rgba(34,197,94,.3), inset 0 1px 0 rgba(255,255,255,.2);
+  background:rgba(34,197,94,.15);
+  color:#86efac; border-color:rgba(34,197,94,.4);
 }
 .editor-save:disabled{ opacity:.5; cursor:not-allowed; }
 .editor-close{ background:rgba(255,255,255,.05); color:#94a3b8; border-color:rgba(255,255,255,.08); }
@@ -654,11 +649,10 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 .internal-toast{
   pointer-events:auto;
   padding:12px 14px; border-radius:12px;
-  background:rgba(15,23,42,.96);
+  background:rgba(15,23,42,.98);
   border:1px solid rgba(34,197,94,.25);
   border-left:4px solid #22c55e;
   color:#e2e8f0; font-size:10px; font-weight:700;
-  box-shadow: 0 15px 40px rgba(0,0,0,.6);
   display:flex; align-items:center; justify-content:space-between;
   backdrop-filter:blur(18px);
   animation: toastSlide .25s cubic-bezier(.175,.885,.32,1.275);
@@ -755,7 +749,7 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
             <div class="section-name" id="repoCountLabel">Aucun projet</div>
           </div>
           <div id="repoFilterBadge" class="status-badge" style="display:none;">
-            <span class="dot" style="background:#22c55e; box-shadow:0 0 4px #22c55e;"></span>
+            <span class="dot" style="background:#22c55e;"></span>
             <span id="filterCount" style="color:#86efac;">0</span>
           </div>
         </div>
@@ -898,6 +892,21 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
         </div>
     </div>
 </div>
+<div id="dupFileModal" class="editor-modal">
+    <div class="editor-panel" style="height:auto; max-height:90vh;">
+        <div class="editor-header">
+            <span class="editor-title" id="dupFileTitle">Dupliquer le dépôt</span>
+            <span class="editor-status" id="dupFileStatus"></span>
+        </div>
+        <div class="new-file-inputs">
+            <input type="text" id="dupRepoName" placeholder="Nom du nouveau dépôt (ex: mon-projet-copie)" autocomplete="off" spellcheck="false" autocapitalize="off" style="flex:1;">
+        </div>
+        <div class="editor-actions">
+            <button class="editor-btn editor-save" id="dupFileSaveBtn" onclick="confirmDuplicateRepo()">📋 Cloner</button>
+            <button class="editor-btn editor-close" onclick="closeDupModal()">✕ Fermer</button>
+        </div>
+    </div>
+</div>
 
 <script>
 /* ========================================================= CONSTANTES ========================================================= */
@@ -933,6 +942,7 @@ let editorState = {
   search: { query: '', matches: [], currentIndex: -1 }
 };
 let newFileState = { owner: null, repo: null, branch: null };
+let dupRepoState = { owner: null, repo: null, branch: null };
 
 /* ========================================================= HAPTIC ========================================================= */
 function haptic(ms){ ms = ms || 8; try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
@@ -1955,11 +1965,12 @@ function renderRepos(repos, query) {
         '<span class="file-loading-placeholder">⏳ Chargement des fichiers...</span>' +
       '</div>' +
 
-      '<div class="repo-actions-row">' +
+      '<div class="repo-actions-row" style="grid-template-columns: repeat(8, minmax(0, 1fr));">' +
         '<button class="action-btn btn-inject" data-action="inject" title="Injecter PWA">INJECT</button>' +
         '<button class="action-btn btn-up" data-action="up" title="Mode UP">UP</button>' +
         '<button class="action-btn btn-icon" data-action="icon" title="Icône PWA">ICON</button>' +
         '<button class="action-btn btn-new" data-action="new" title="Nouveau fichier">NEW</button>' +
+        '<button class="action-btn btn-dup" data-action="dup" title="Dupliquer">DUP</button>' +
         '<button class="action-btn btn-view" data-action="view" title="Voir en ligne">VIEW</button>' +
         '<button class="action-btn btn-back" data-action="back" title="Rollback">BACK</button>' +
         '<button class="action-btn btn-sup" data-action="sup" title="Supprimer">SUP</button>' +
@@ -2005,6 +2016,7 @@ function renderRepos(repos, query) {
           case 'up': toggleUpMode(btn, name); break;
           case 'icon': uploadIcon(owner, name, branch); break;
           case 'new': openNewFileModal(owner, name, branch); break;
+          case 'dup': openDupModal(owner, name, branch); break;
           case 'view': viewLivePage(owner, name); break;
           case 'back': showRollbackConfirmPanel(name); break;
           case 'sup': showConfirmPanel(name); break;
@@ -2170,7 +2182,7 @@ async function openEditor(owner, repo, filename, branch) {
     editorState.originalContent = content;
     ta.value = content;
     ta.disabled = false; saveBtn.disabled = false;
-    statusEl.textContent = content.length + ' caractères';
+    updateEditorLineCount(content);
     autoGrow(ta);
     rebuildHighlight();
     setTimeout(() => ta.focus(), 60);
@@ -2179,6 +2191,12 @@ async function openEditor(owner, repo, filename, branch) {
     statusEl.textContent = 'Erreur : ' + e.message;
     showNotification('Échec chargement : ' + e.message, 'danger');
   }
+}
+function updateEditorLineCount(text) {
+  const statusEl = byId('editorStatus');
+  if (!statusEl) return;
+  const lines = (text.match(/\n/g) || []).length + 1;
+  statusEl.textContent = lines + (lines > 1 ? ' lignes' : ' ligne');
 }
 
 function closeEditor() {
@@ -2395,6 +2413,98 @@ async function saveNewFile() {
     setRepoBusy(busyRepo, false);
   }
 }
+function openDupModal(owner, repo, branch) {
+  const tok = store.getItem(LS_KEYS.TOKEN);
+  if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  dupRepoState = { owner, repo, branch };
+  byId('dupRepoName').value = repo + '-copie';
+  byId('dupFileTitle').textContent = repo + ' — Dupliquer';
+  byId('dupFileStatus').textContent = '';
+  byId('dupFileSaveBtn').disabled = false;
+  byId('dupFileModal').classList.add('visible');
+  setTimeout(() => byId('dupRepoName').focus(), 60);
+}
+function closeDupModal() {
+  byId('dupFileModal').classList.remove('visible');
+  dupRepoState = { owner: null, repo: null, branch: null };
+}
+async function confirmDuplicateRepo() {
+  const tok = store.getItem(LS_KEYS.TOKEN);
+  if (!tok || !dupRepoState.owner) return;
+  const nameInput = byId('dupRepoName');
+  const newName = nameInput.value.trim();
+  const statusEl = byId('dupFileStatus');
+  const saveBtn = byId('dupFileSaveBtn');
+
+  if (!newName) { showNotification('Nom du nouveau dépôt requis', 'danger'); nameInput.focus(); return; }
+
+  statusEl.style.color = '#fcd34d';
+  statusEl.textContent = 'Clonage...';
+  saveBtn.disabled = true;
+
+  try {
+    const srcOwner = dupRepoState.owner;
+    const srcRepo = dupRepoState.repo;
+    const srcBranch = dupRepoState.branch;
+
+    const createResp = await ghFetch(GH_API + '/user/repos', {
+      method: 'POST',
+      headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, private: true, auto_init: true })
+    });
+    if (!createResp.ok) {
+      const errData = await createResp.json().catch(()=>({}));
+      throw new Error(errData.message || 'Échec création du dépôt cible');
+    }
+    const newRepoData = await createResp.json();
+    const newOwner = newRepoData.owner.login;
+    const newBranch = newRepoData.default_branch || 'main';
+
+    statusEl.textContent = 'Copie des fichiers...';
+    const contentsResp = await ghFetch(GH_API + '/repos/' + srcOwner + '/' + srcRepo + '/contents?ref=' + srcBranch, {
+      headers: { 'Authorization': 'token ' + tok }
+    });
+    if (contentsResp.ok) {
+      const items = await contentsResp.json();
+      const files = items.filter(item => item.type === 'file');
+      for (const file of files) {
+        const fileResp = await ghFetch(GH_API + '/repos/' + srcOwner + '/' + srcRepo + '/contents/' + file.name + '?ref=' + srcBranch, {
+          headers: { 'Authorization': 'token ' + tok }
+        });
+        if (fileResp.ok) {
+          const fileData = await fileResp.json();
+          await ghFetch(GH_API + '/repos/' + newOwner + '/' + newName + '/contents/' + file.name, {
+            method: 'PUT',
+            headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: 'Hubcode: clone from ' + srcRepo,
+              content: fileData.content,
+              branch: newBranch
+            })
+          });
+        }
+      }
+    }
+
+    statusEl.style.color = '#4ade80';
+    statusEl.textContent = '✓ Cloné avec succès';
+    showNotification('Dépôt ' + newName + ' créé et cloné', 'success');
+
+    setTimeout(async () => {
+      closeDupModal();
+      allRepositories = await fetchAllRepositories(tok);
+      fileCache = {};
+      renderRepos(allRepositories);
+      updateRepoCount();
+      loadFilesForVisibleRepos();
+    }, 800);
+  } catch(e) {
+    statusEl.style.color = '#f87171';
+    statusEl.textContent = 'Erreur : ' + e.message;
+    showNotification('Échec clonage : ' + e.message, 'danger');
+    saveBtn.disabled = false;
+  }
+}
 
 /* ========================================================= ÉVÉNEMENTS ÉDITEUR ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
@@ -2421,7 +2531,7 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput.value = ''; performSearch(''); searchInput.focus();
   });
 
-  ta.addEventListener('input', () => { autoGrow(ta); rebuildHighlight(); });
+ta.addEventListener('input', () => { autoGrow(ta); rebuildHighlight(); updateEditorLineCount(ta.value); });
   ta.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault(); searchInput.focus(); searchInput.select();
@@ -2434,6 +2544,8 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ========================================================= KEYBOARD GLOBAL ========================================================= */
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') {
+    const dm = byId('dupFileModal');
+    if (dm && dm.classList.contains('visible')) { closeDupModal(); return; }
     const m = byId('editorModal');
     if (m && m.classList.contains('visible')) {
       const si = byId('editorSearchInput');
@@ -2466,6 +2578,7 @@ document.addEventListener('keydown', function(e){
 
 /* ========================================================= EXPOSE GLOBAL ========================================================= */
 window.openSheet = openSheet;
+window.openDupModal = openDupModal;
 window.closeSheet = closeSheet;
 window.toggleTokenView = toggleTokenView;
 window.pasteToken = pasteToken;
@@ -2497,6 +2610,9 @@ window.saveEditor = saveEditor;
 window.openNewFileModal = openNewFileModal;
 window.closeNewFileModal = closeNewFileModal;
 window.saveNewFile = saveNewFile;
+window.openDupModal = openDupModal;
+window.closeDupModal = closeDupModal;
+window.confirmDuplicateRepo = confirmDuplicateRepo;
 </script>
 </body>
 </html>
