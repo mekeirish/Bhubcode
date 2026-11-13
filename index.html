@@ -102,6 +102,8 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.06);
 }
 .header-btn:active{ transform:scale(.94); background:rgba(34,197,94,.13); }
+#connBtn{ display:none; }
+#connBtn.show{ display:flex; }
 
 .save-indicator{
   position:absolute; top:-2px; left:-2px;
@@ -603,6 +605,14 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 }
 .editor-save:disabled{ opacity:.5; cursor:not-allowed; }
 .editor-close{ background:rgba(255,255,255,.05); color:#94a3b8; border-color:rgba(255,255,255,.08); }
+.editor-link{
+  flex:0 0 auto;
+  padding:12px 16px;
+  background:rgba(147,197,253,.12);
+  color:#93c5fd;
+  border-color:rgba(147,197,253,.35);
+}
+.editor-link:active{ background:rgba(147,197,253,.22); }
 .editor-download{
   width:100%; flex:0 0 auto;
   background:rgba(34,197,94,.08); color:#86efac;
@@ -710,37 +720,38 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
         </div>
         <div id="saveIndicator" class="save-indicator"></div>
       </div>
-      <div class="header-right">
-        <div id="statusBadge" class="status-badge">
-          <span class="dot"></span>
-          <span id="statusBadgeText">READY</span>
-        </div>
-        <button class="header-btn" onclick="openSheet('info')" aria-label="Info">ⓘ</button>
-      </div>
+<div class="header-right">
+  <div id="statusBadge" class="status-badge">
+    <span class="dot"></span>
+    <span id="statusBadgeText">READY</span>
+  </div>
+  <button class="header-btn" id="connBtn" onclick="toggleConnectionCard()" aria-label="Connexion">🔑</button>
+  <button class="header-btn" onclick="openSheet('info')" aria-label="Info">ⓘ</button>
+</div>
     </header>
 
     <main class="main">
-      <section class="card glass glass-accent">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Connexion</div>
-            <div class="section-name">GitHub Access</div>
-          </div>
-          <div class="status-badge" style="pointer-events:none;">
-            <span class="dot" style="background:#22c55e; box-shadow:0 0 4px #22c55e;"></span>
-            <span style="color:#86efac;">SECURE</span>
-          </div>
-        </div>
-        <div class="token-row">
-          <input id="githubToken" class="field" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false" oninput="onTokenInput(this.value.trim())">
-          <button class="small-btn" onclick="toggleTokenView(this)" title="Voir/Cacher">👁</button>
-          <button class="small-btn" onclick="pasteToken()" title="Coller">📋</button>
-        </div>
-        <button class="btn-load" id="loadBtn" onclick="fetchRepositories()">
-          <span>🔄</span>
-          <span>CHARGER LES DÉPÔTS</span>
-        </button>
-      </section>
+<section class="card glass glass-accent" id="connectionCard">
+  <div class="section-head">
+    <div>
+      <div class="section-title">Connexion</div>
+      <div class="section-name">GitHub Access</div>
+    </div>
+    <div class="status-badge" style="pointer-events:none;">
+      <span class="dot" style="background:#22c55e; box-shadow:0 0 4px #22c55e;"></span>
+      <span style="color:#86efac;">SECURE</span>
+    </div>
+  </div>
+  <div class="token-row">
+    <input id="githubToken" class="field" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false" oninput="onTokenInput(this.value.trim())">
+    <button class="small-btn" onclick="toggleTokenView(this)" title="Voir/Cacher">👁</button>
+    <button class="small-btn" onclick="pasteToken()" title="Coller">📋</button>
+  </div>
+  <button class="btn-load" id="loadBtn" onclick="fetchRepositories()">
+    <span>🔄</span>
+    <span>CHARGER LES DÉPÔTS</span>
+  </button>
+</section>
 
       <section class="card glass" style="flex:1; min-height:0; display:flex; flex-direction:column;">
         <div class="section-head">
@@ -848,6 +859,7 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 
         <div class="editor-actions">
             <button class="editor-btn editor-save" id="editorSaveBtn" onclick="saveEditor()">💾 Enregistrer</button>
+<button class="editor-btn editor-link" id="editorLinkBtn" onclick="copyFileLink()" title="Copier le lien du fichier">🔗</button>
             <button class="editor-btn editor-close" onclick="closeEditor()">✕ Fermer</button>
         </div>
 
@@ -1058,6 +1070,25 @@ function onTokenInput(val){
   store.setItem(LS_KEYS.TOKEN, val);
   showSaveIndicator();
 }
+function hideConnectionCard() {
+  const card = byId('connectionCard');
+  if (card) card.style.display = 'none';
+  const btn = byId('connBtn');
+  if (btn) btn.classList.add('show');
+}
+function showConnectionCard() {
+  const card = byId('connectionCard');
+  if (card) card.style.display = '';
+  const btn = byId('connBtn');
+  if (btn) btn.classList.remove('show');
+}
+function toggleConnectionCard() {
+  const card = byId('connectionCard');
+  if (!card) return;
+  if (card.style.display === 'none') showConnectionCard();
+  else hideConnectionCard();
+  haptic(6);
+}
 function toggleTokenView(btn){
   const input = byId('githubToken');
   if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
@@ -1203,9 +1234,11 @@ async function fetchRepositories() {
     showNotification(allRepositories.length + ' dépôts chargés', 'success');
     // Load file lists for each visible repo
     loadFilesForVisibleRepos();
+    hideConnectionCard();
   } catch(err) {
     showNotification(err.message, 'danger');
     byId('statusBadge').classList.add('err');
+    showConnectionCard();
   } finally {
     setActivityState(false);
     loadBtn.disabled = false;
@@ -2263,6 +2296,17 @@ async function saveEditor() {
     setRepoBusy(busyRepo, false);
   }
 }
+async function copyFileLink() {
+  if (!editorState.owner || !editorState.repo || !editorState.filename) return;
+  const url = 'https://github.com/' + editorState.owner + '/' + editorState.repo + '/blob/' + editorState.branch + '/' + editorState.filename;
+  try {
+    await navigator.clipboard.writeText(url);
+    showNotification('Lien copié', 'success');
+  } catch(e) {
+    showNotification('Impossible de copier le lien', 'danger');
+  }
+  haptic(6);
+}
 function downloadEditorFile() {
   if (!editorState.filename) return;
   const filename = editorState.filename;
@@ -2569,6 +2613,9 @@ document.addEventListener('keydown', function(e){
     byId('searchClear').classList.add('show');
   }
   updateRepoCount();
+  if (savedToken) {
+    setTimeout(() => { fetchRepositories(); }, 150);
+  }
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -2607,12 +2654,16 @@ window.haptic = haptic;
 window.openEditor = openEditor;
 window.closeEditor = closeEditor;
 window.saveEditor = saveEditor;
+window.copyFileLink = copyFileLink;
 window.openNewFileModal = openNewFileModal;
 window.closeNewFileModal = closeNewFileModal;
 window.saveNewFile = saveNewFile;
 window.openDupModal = openDupModal;
 window.closeDupModal = closeDupModal;
 window.confirmDuplicateRepo = confirmDuplicateRepo;
+window.toggleConnectionCard = toggleConnectionCard;
+window.showConnectionCard = showConnectionCard;
+window.hideConnectionCard = hideConnectionCard;
 </script>
 </body>
 </html>
