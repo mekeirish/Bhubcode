@@ -191,6 +191,10 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   display:flex; flex-direction:column; gap:10px;
   transition:.2s ease;
 }
+.repo-item.repo-incomplete{
+  background: linear-gradient(145deg, rgba(250,204,21,.09), rgba(250,204,21,.035));
+  border-color: rgba(250,204,21,.28);
+}
 .repo-header{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 2px; }
 .repo-name{
   font-size:12px; font-weight:800; color:#e2e8f0;
@@ -948,6 +952,8 @@ let audioCtx = null;
 let upModeState = {};
 let fileCache = {};
 let token = '';
+let linesCache = {};
+let allFilesCache = {};
 let editorState = {
   owner: null, repo: null, filename: null, branch: null,
   originalContent: '',
@@ -1246,7 +1252,6 @@ async function fetchRepositories() {
   }
 }
 
-/* ========================================================= FILE LISTS ========================================================= */
 async function loadFilesForRepo(owner, repo, branch, tok) {
   if (fileCache[repo]) return fileCache[repo];
   try {
@@ -1255,6 +1260,7 @@ async function loadFilesForRepo(owner, repo, branch, tok) {
     });
     if (!resp.ok) return [];
     const items = await resp.json();
+    allFilesCache[repo] = items.filter(item => item.type === 'file').map(item => item.name);
     const files = items.filter(item => item.type === 'file' && isDisplayableFile(item.name)).map(item => item.name);
     files.sort((a, b) => {
       const order = { 'manifest.json': 0, 'sw.js': 1, 'readme.md': 2, 'readme': 2, 'index.html': 3 };
@@ -1288,8 +1294,48 @@ async function loadFilesForVisibleRepos() {
       } else {
         filesRow.innerHTML = '<span class="file-loading-placeholder">(aucun fichier affichable)</span>';
       }
+      if (files && files.indexOf('index.html') !== -1) {
+        loadIndexLineCount(allRepositories[i].owner.login, repoName, allRepositories[i].default_branch, tok)
+          .then(count => updateLinesBadge(repoName, count));
+      } else {
+        updateLinesBadge(repoName, null);
+      }
+      const raw = allFilesCache[repoName] || [];
+      const required = ['index.html', 'manifest.json', 'sw.js', 'icon.png'];
+      const complete = required.every(f => raw.indexOf(f) !== -1);
+      const repoEl = byId('repo-' + repoName);
+      if (repoEl) repoEl.classList.toggle('repo-incomplete', !complete);
     }
   });
+}
+async function loadIndexLineCount(owner, repo, branch, tok) {
+  const key = owner + '/' + repo;
+  if (Object.prototype.hasOwnProperty.call(linesCache, key)) return linesCache[key];
+  try {
+    const resp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/index.html?ref=' + branch, {
+      headers: { 'Authorization': 'token ' + tok }
+    });
+    if (!resp.ok) { linesCache[key] = null; return null; }
+    const data = await resp.json();
+    const content = b64ToUtf8(data.content);
+    const count = (content.match(/\n/g) || []).length + 1;
+    linesCache[key] = count;
+    return count;
+  } catch(e) {
+    linesCache[key] = null;
+    return null;
+  }
+}
+function updateLinesBadge(repoName, count) {
+  const el = byId('lines-' + repoName);
+  if (!el) return;
+  if (count === null || count === undefined) {
+    el.style.display = 'none';
+    el.textContent = '';
+  } else {
+    el.style.display = 'inline-block';
+    el.textContent = String(count);
+  }
 }
 
 /* ========================================================= RECHERCHE ========================================================= */
@@ -1990,7 +2036,7 @@ function renderRepos(repos, query) {
     div.innerHTML =
       '<div class="repo-header">' +
         '<div class="repo-name">' + escapeHtml(repo.name) +
-          '<span class="branch-tag">' + escapeHtml(repo.default_branch) + '</span>' +
+          '<span class="branch-tag" id="lines-' + repo.name + '" style="display:none;"></span>' +
         '</div>' +
       '</div>' +
 
