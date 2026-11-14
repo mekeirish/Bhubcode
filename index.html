@@ -2233,6 +2233,55 @@ function renderRepos(repos, query) {
 
     container.appendChild(div);
 
+    // CLIGNOTEMENT DORÉ DU DERNIER DÉPÔT DUPLIQUÉ
+    const duplicatedRepoKey = window.hubcodeBlinkRepo;
+
+    if (
+      duplicatedRepoKey &&
+      duplicatedRepoKey === repo.owner.login + '/' + repo.name
+    ) {
+      window.hubcodeBlinkRepo = null;
+
+      if (typeof div.animate === 'function') {
+        const blinkAnimation = div.animate(
+          [
+            {
+              boxShadow: '0 0 0 0 rgba(232,184,76,0)',
+              borderColor: 'rgba(232,184,76,0)',
+              backgroundColor: 'rgba(232,184,76,0)'
+            },
+            {
+              boxShadow: '0 0 20px 4px rgba(232,184,76,0.95)',
+              borderColor: '#e8b84c',
+              backgroundColor: 'rgba(232,184,76,0.13)'
+            },
+            {
+              boxShadow: '0 0 0 0 rgba(232,184,76,0)',
+              borderColor: 'rgba(232,184,76,0)',
+              backgroundColor: 'rgba(232,184,76,0)'
+            }
+          ],
+          {
+            duration: 1000,
+            iterations: 10,
+            easing: 'ease-in-out'
+          }
+        );
+
+        blinkAnimation.onfinish = () => {
+          blinkAnimation.cancel();
+        };
+      } else {
+        div.style.border = '1px solid #e8b84c';
+        div.style.boxShadow = '0 0 20px rgba(232,184,76,0.8)';
+
+        setTimeout(() => {
+          div.style.border = '';
+          div.style.boxShadow = '';
+        }, 10000);
+      }
+    }
+
     if (upModeState[repo.name]) {
       const upBtn = div.querySelector('.btn-up');
       if (upBtn) upBtn.classList.add('btn-up-active');
@@ -3448,21 +3497,9 @@ async function confirmDuplicateRepo() {
 
         pagesUrl = finalPagesInfo.html_url || pagesUrl;
 
-        // -----------------------------------------------------
-        // ÉTAPE 4 : DÉLAI DE STABILISATION DE 10 SECONDES
-        // -----------------------------------------------------
-
         log('✓ Build GitHub confirmé.');
         log('✓ Adresse publique testée 3 fois avec HTTP 200.');
         log('✓ GitHub Pages est réellement accessible.');
-        log('⏳ Attente supplémentaire de 10 secondes avant la confirmation finale...');
-
-        statusEl.textContent =
-          'Site accessible — stabilisation finale : 10 secondes...';
-
-        await new Promise(r => setTimeout(r, 10000));
-
-        log('✓ Délai de stabilisation de 10 secondes terminé.');
         log('✓ Site prêt : ' + pagesUrl);
 
       } catch (pagesSetupError) {
@@ -3499,14 +3536,18 @@ async function confirmDuplicateRepo() {
         'success'
       );
 
-      setTimeout(async () => {
-        closeDupModal();
-        allRepositories = await fetchAllRepositories(tok);
-        fileCache = {};
-        renderRepos(allRepositories);
-        updateRepoCount();
-        loadFilesForVisibleRepos();
-      }, 2500);
+      // IDENTIFIER LE NOUVEAU DÉPÔT À METTRE EN ÉVIDENCE
+      window.hubcodeBlinkRepo = newOwner + '/' + newName;
+
+      // ACTUALISATION IMMÉDIATE DE LA LISTE
+      closeDupModal();
+
+      allRepositories = await fetchAllRepositories(tok);
+      fileCache = {};
+
+      renderRepos(allRepositories);
+      updateRepoCount();
+      loadFilesForVisibleRepos();
 
     } else {
       statusEl.style.color = '#fcd34d';
