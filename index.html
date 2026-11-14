@@ -654,6 +654,89 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
 }
 #newFileContent::placeholder{ color:#475569; }
 #newFileContent:focus{ border-color:rgba(34,197,94,.55); box-shadow:0 0 0 2px rgba(34,197,94,.1); }
+.dup-debug-panel {
+  display: flex; flex-direction: column; gap: 4px;
+  background: rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.06);
+  border-radius: 11px; padding: 8px; margin-top: 8px; flex: 1; min-height: 120px; max-height: 250px;
+  animation: panelIn .25s ease;
+}
+.dup-debug-header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase;
+}
+.dup-debug-copy {
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 6px; color: #94a3b8; padding: 4px 8px; font-size: 9px; cursor: pointer;
+  transition: .15s ease;
+}
+.dup-debug-copy:active { transform: scale(.95); }
+.dup-debug-textarea {
+  flex: 1; width: 100%; background: transparent; border: none; color: #4ade80;
+  font-family: monospace; font-size: 10px; line-height: 1.4; resize: none; outline: none;
+  white-space: pre-wrap; word-break: break-all;
+}
+.dup-visibility-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 11px;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.dup-visibility-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.dup-visibility-status {
+  font-size: 11px;
+  font-weight: 800;
+  color: #86efac;
+  min-width: 46px;
+  text-align: right;
+}
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  margin: 0 12px;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #334155;
+  transition: .3s;
+  border-radius: 24px;
+}
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background-color: #22c55e;
+}
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
 
 /* ========================================================= TOAST ========================================================= */
 .toast-container{
@@ -921,6 +1004,28 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
         <div class="new-file-inputs">
             <input type="text" id="dupRepoName" placeholder="Nom du nouveau dépôt (ex: mon-projet-copie)" autocomplete="off" spellcheck="false" autocapitalize="off" style="flex:1;">
         </div>
+<div class="dup-debug-panel" id="dupDebugPanel">
+    <div class="dup-debug-header">
+        <span>Rapport de clonage</span>
+        <button onclick="copyDupDebugReport()" class="dup-debug-copy">📋 Copier</button>
+    </div>
+    <textarea id="dupDebugOutput" class="dup-debug-textarea" readonly></textarea>
+</div>
+<div class="dup-visibility-row">
+    <span class="dup-visibility-label">Visibilité</span>
+    <div style="display:flex; align-items:center;">
+        <label class="toggle-switch">
+            <input type="checkbox" id="dupIsPrivate" onchange="
+                const isP = this.checked;
+                const txt = document.getElementById('dupVisibilityText');
+                txt.textContent = isP ? 'Privé' : 'Public';
+                txt.style.color = isP ? '#86efac' : '#fcd34d';
+            ">
+            <span class="toggle-slider"></span>
+        </label>
+        <span class="dup-visibility-status" id="dupVisibilityText" style="color:#fcd34d;">Public</span>
+    </div>
+</div>
         <div class="editor-actions">
             <button class="editor-btn editor-save" id="dupFileSaveBtn" onclick="confirmDuplicateRepo()">📋 Cloner</button>
             <button class="editor-btn editor-close" onclick="closeDupModal()">✕ Fermer</button>
@@ -1020,9 +1125,9 @@ function escapeHtml(s){
 }
 
 /* ========================================================= FETCH AVEC TIMEOUT ========================================================= */
-async function ghFetch(url, options = {}) {
+async function ghFetch(url, options = {}, customTimeout = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), customTimeout);
   try {
     const resp = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeout);
@@ -1035,7 +1140,7 @@ async function ghFetch(url, options = {}) {
     return resp;
   } catch (e) {
     clearTimeout(timeout);
-    if (e.name === 'AbortError') throw new Error('Timeout : GitHub n\'a pas répondu');
+    if (e.name === 'AbortError') throw new Error('Timeout : le réseau est trop lent ou GitHub n\'a pas répondu');
     throw e;
   }
 }
@@ -2510,11 +2615,29 @@ async function saveNewFile() {
 function openDupModal(owner, repo, branch) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
+
   dupRepoState = { owner, repo, branch };
   byId('dupRepoName').value = repo + '-copie';
   byId('dupFileTitle').textContent = repo + ' — Dupliquer';
   byId('dupFileStatus').textContent = '';
   byId('dupFileSaveBtn').disabled = false;
+
+  const dupIsPrivate = byId('dupIsPrivate');
+  if (dupIsPrivate) {
+    dupIsPrivate.checked = false;
+    const txt = byId('dupVisibilityText');
+    if (txt) {
+      txt.textContent = 'Public';
+      txt.style.color = '#fcd34d';
+    }
+  }
+
+  const debugOutput = byId('dupDebugOutput');
+  if (debugOutput) {
+    debugOutput.value = '';
+    debugOutput.style.color = '#4ade80';
+  }
+
   byId('dupFileModal').classList.add('visible');
   setTimeout(() => byId('dupRepoName').focus(), 60);
 }
@@ -2529,73 +2652,894 @@ async function confirmDuplicateRepo() {
   const newName = nameInput.value.trim();
   const statusEl = byId('dupFileStatus');
   const saveBtn = byId('dupFileSaveBtn');
+  const isPrivate = byId('dupIsPrivate') ? byId('dupIsPrivate').checked : true;
 
   if (!newName) { showNotification('Nom du nouveau dépôt requis', 'danger'); nameInput.focus(); return; }
 
   statusEl.style.color = '#fcd34d';
-  statusEl.textContent = 'Clonage...';
+  statusEl.textContent = 'Clonage (Git Data API)...';
   saveBtn.disabled = true;
+
+  const logEl = byId('dupDebugOutput');
+  if (logEl) { logEl.value = ''; logEl.style.color = '#4ade80'; }
+  
+  const log = (msg, isErr = false) => {
+    const time = new Date().toLocaleTimeString('fr-FR');
+    if (logEl) {
+      logEl.value += `[${time}] ${isErr ? '❌' : '▶'} ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      if (isErr) logEl.style.color = '#f87171';
+    }
+  };
+
+  /* Fonction de retry pour gérer les limites de taux GitHub (403 / 429) */
+  const apiCallWithRetry = async (url, options, timeout) => {
+    let attempts = 0;
+    while (attempts < 5) {
+      try {
+        const resp = await ghFetch(url, options, timeout);
+        
+        if (resp.status === 403 || resp.status === 429) {
+          const errText = await resp.clone().text();
+          if (errText.toLowerCase().includes('rate limit') || errText.toLowerCase().includes('abuse') || resp.status === 429) {
+            attempts++;
+            let waitTime = attempts * 20000; // 20s, 40s, 60s, 80s...
+            const retryAfter = resp.headers.get('retry-after');
+            if (retryAfter) waitTime = parseInt(retryAfter, 10) * 1000;
+            
+            log(`⏳ Rate limit GitHub atteint. Attente de ${Math.round(waitTime/1000)}s... (tentative ${attempts}/5)`, true);
+            await new Promise(r => setTimeout(r, waitTime));
+            continue;
+          }
+        }
+        return resp;
+      } catch (e) {
+        attempts++;
+        if (attempts >= 5) throw e;
+        log(`⚠️ Erreur réseau : ${e.message}. Nouvelle tentative dans 5s...`, true);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+    throw new Error('Échec après plusieurs tentatives (Rate limit persistant)');
+  };
 
   try {
     const srcOwner = dupRepoState.owner;
     const srcRepo = dupRepoState.repo;
     const srcBranch = dupRepoState.branch;
 
-    const createResp = await ghFetch(GH_API + '/user/repos', {
+    log(`Création du dépôt cible "${newName}" (${isPrivate ? 'Privé' : 'Public'})...`);
+
+    const createResp = await apiCallWithRetry(GH_API + '/user/repos', {
       method: 'POST',
-      headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, private: true, auto_init: true })
-    });
+      headers: {
+        'Authorization': 'token ' + tok,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: newName,
+        private: isPrivate,
+        auto_init: true
+      })
+    }, 30000);
+
     if (!createResp.ok) {
-      const errData = await createResp.json().catch(()=>({}));
+      const errData = await createResp.json().catch(() => ({}));
       throw new Error(errData.message || 'Échec création du dépôt cible');
     }
+
     const newRepoData = await createResp.json();
     const newOwner = newRepoData.owner.login;
-    const newBranch = newRepoData.default_branch || 'main';
+    let newBranch = newRepoData.default_branch || 'main';
 
-    statusEl.textContent = 'Copie des fichiers...';
-    const contentsResp = await ghFetch(GH_API + '/repos/' + srcOwner + '/' + srcRepo + '/contents?ref=' + srcBranch, {
-      headers: { 'Authorization': 'token ' + tok }
-    });
-    if (contentsResp.ok) {
-      const items = await contentsResp.json();
-      const files = items.filter(item => item.type === 'file');
-      for (const file of files) {
-        const fileResp = await ghFetch(GH_API + '/repos/' + srcOwner + '/' + srcRepo + '/contents/' + file.name + '?ref=' + srcBranch, {
+    log('Dépôt créé avec succès.');
+
+    // =====================================================
+    // RÉCUPÉRATION DU COMMIT INITIAL
+    // =====================================================
+
+    log('Attente du commit initial...');
+
+    let initialCommitSha = null;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise(r => setTimeout(r, 1500));
+
+      const refResp = await apiCallWithRetry(
+        GH_API + '/repos/' + newOwner + '/' + newName +
+        '/git/ref/heads/' + encodeURIComponent(newBranch),
+        {
           headers: { 'Authorization': 'token ' + tok }
-        });
-        if (fileResp.ok) {
-          const fileData = await fileResp.json();
-          await ghFetch(GH_API + '/repos/' + newOwner + '/' + newName + '/contents/' + file.name, {
-            method: 'PUT',
-            headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: 'Hubcode: clone from ' + srcRepo,
-              content: fileData.content,
-              branch: newBranch
-            })
-          });
-        }
+        },
+        25000
+      );
+
+      if (refResp.ok) {
+        const refData = await refResp.json();
+        initialCommitSha = refData.object.sha;
+        break;
       }
     }
 
-    statusEl.style.color = '#4ade80';
-    statusEl.textContent = '✓ Cloné avec succès';
-    showNotification('Dépôt ' + newName + ' créé et cloné', 'success');
+    if (!initialCommitSha) {
+      throw new Error('Le commit initial n\'est pas disponible');
+    }
 
-    setTimeout(async () => {
-      closeDupModal();
-      allRepositories = await fetchAllRepositories(tok);
-      fileCache = {};
-      renderRepos(allRepositories);
-      updateRepoCount();
-      loadFilesForVisibleRepos();
-    }, 800);
+    log('Commit initial récupéré.');
+
+    // =====================================================
+    // PUBLIC : CRÉATION DIRECTE DE MAIN ET BRANCHE PAR DÉFAUT
+    // =====================================================
+
+    if (!isPrivate) {
+      log('Préparation de la branche principale main...');
+
+      const mainRefUrl =
+        GH_API + '/repos/' + newOwner + '/' + newName +
+        '/git/ref/heads/main';
+
+      let mainRefResp = await apiCallWithRetry(
+        mainRefUrl,
+        {
+          headers: { 'Authorization': 'token ' + tok }
+        },
+        25000
+      );
+
+      if (mainRefResp.status === 404) {
+        log('Création directe de la branche main...');
+
+        mainRefResp = await apiCallWithRetry(
+          GH_API + '/repos/' + newOwner + '/' + newName + '/git/refs',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': 'token ' + tok,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              ref: 'refs/heads/main',
+              sha: initialCommitSha
+            })
+          },
+          30000
+        );
+
+        if (!mainRefResp.ok) {
+          const errData = await mainRefResp.json().catch(() => ({}));
+          throw new Error(
+            'Impossible de créer main : ' +
+            (errData.message || mainRefResp.status)
+          );
+        }
+
+        log('Branche main créée.');
+      } else if (!mainRefResp.ok) {
+        const errData = await mainRefResp.json().catch(() => ({}));
+        throw new Error(
+          'Impossible de vérifier main : ' +
+          (errData.message || mainRefResp.status)
+        );
+      } else {
+        log('La branche main existe déjà.');
+      }
+
+      log('Configuration de main comme branche par défaut...');
+
+      const defaultBranchResp = await apiCallWithRetry(
+        GH_API + '/repos/' + newOwner + '/' + newName,
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': 'token ' + tok,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            default_branch: 'main'
+          })
+        },
+        30000
+      );
+
+      if (!defaultBranchResp.ok) {
+        const errData = await defaultBranchResp.json().catch(() => ({}));
+        throw new Error(
+          'GitHub refuse de définir main comme branche par défaut : ' +
+          (errData.message || defaultBranchResp.status)
+        );
+      }
+
+      const verifyRepoResp = await apiCallWithRetry(
+        GH_API + '/repos/' + newOwner + '/' + newName,
+        {
+          headers: { 'Authorization': 'token ' + tok }
+        },
+        25000
+      );
+
+      if (!verifyRepoResp.ok) {
+        throw new Error('Impossible de vérifier la branche par défaut');
+      }
+
+      const verifyRepoData = await verifyRepoResp.json();
+
+      if (verifyRepoData.default_branch !== 'main') {
+        throw new Error(
+          'GitHub n\'a pas confirmé main comme branche par défaut'
+        );
+      }
+
+      newBranch = 'main';
+      log('✓ main confirmée comme branche par défaut.');
+    }
+
+    // =====================================================
+    // LECTURE DU DÉPÔT SOURCE
+    // =====================================================
+
+    log('Lecture de l\'arborescence source...');
+
+    const treeResp = await apiCallWithRetry(
+      GH_API + '/repos/' + srcOwner + '/' + srcRepo +
+      '/git/trees/' + encodeURIComponent(srcBranch) + '?recursive=1',
+      {
+        headers: { 'Authorization': 'token ' + tok }
+      },
+      25000
+    );
+
+    if (!treeResp.ok) {
+      throw new Error(
+        'Arborescence source inaccessible (' + treeResp.status + ')'
+      );
+    }
+
+    const treeData = await treeResp.json();
+
+    const blobs = (treeData.tree || []).filter(
+      item => item.type === 'blob' && item.mode !== '120000'
+    );
+
+    if (blobs.length === 0) {
+      throw new Error('Aucun fichier à cloner');
+    }
+
+    log(`Arborescence lue : ${blobs.length} fichier(s).`);
+
+    const blobShas = {};
+
+    // =====================================================
+    // COPIE DES FICHIERS
+    // =====================================================
+
+    for (let i = 0; i < blobs.length; i++) {
+      const b = blobs[i];
+
+      statusEl.textContent =
+        'Copie ' + (i + 1) + '/' + blobs.length + ' : ' + b.path;
+
+      log(`[${i + 1}/${blobs.length}] Lecture de ${b.path}...`);
+
+      const fileResp = await apiCallWithRetry(
+        GH_API + '/repos/' + srcOwner + '/' + srcRepo +
+        '/contents/' + b.path + '?ref=' + encodeURIComponent(srcBranch),
+        {
+          headers: { 'Authorization': 'token ' + tok }
+        },
+        60000
+      );
+
+      if (!fileResp.ok) {
+        throw new Error(
+          'Lecture source échouée : ' + b.path +
+          ' (' + fileResp.status + ')'
+        );
+      }
+
+      const fileData = await fileResp.json();
+      let contentB64 = fileData.content || '';
+      const fileSha = fileData.sha;
+
+      if (!contentB64 || fileData.encoding === 'none') {
+        log(`[${i + 1}/${blobs.length}] Fichier lourd, fallback blob API...`);
+
+        const sourceBlobResp = await apiCallWithRetry(
+          GH_API + '/repos/' + srcOwner + '/' + srcRepo +
+          '/git/blobs/' + fileSha,
+          {
+            headers: { 'Authorization': 'token ' + tok }
+          },
+          60000
+        );
+
+        if (!sourceBlobResp.ok) {
+          throw new Error('Blob source illisible : ' + b.path);
+        }
+
+        const sourceBlobData = await sourceBlobResp.json();
+        contentB64 = sourceBlobData.content || '';
+      }
+
+      contentB64 = contentB64.replace(/\s/g, '');
+
+      const sizeKb = (contentB64.length / 1024).toFixed(1);
+
+      log(`[${i + 1}/${blobs.length}] Envoi de ${b.path} (${sizeKb} Ko)...`);
+
+      const blobResp = await apiCallWithRetry(
+        GH_API + '/repos/' + newOwner + '/' + newName + '/git/blobs',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'token ' + tok,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            content: contentB64,
+            encoding: 'base64'
+          })
+        },
+        120000
+      );
+
+      if (!blobResp.ok) {
+        const errData = await blobResp.json().catch(() => ({}));
+        throw new Error(
+          'Création blob échouée : ' + b.path + ' — ' +
+          (errData.message || blobResp.status)
+        );
+      }
+
+      const blobData = await blobResp.json();
+      blobShas[b.path] = blobData.sha;
+
+      if (i < blobs.length - 1) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
+    // =====================================================
+    // CRÉATION DE L'ARBRE ET DU COMMIT
+    // =====================================================
+
+    log('Assemblage de l\'arbre Git...');
+
+    const treeEntries = blobs.map(b => ({
+      path: b.path,
+      mode: b.mode || '100644',
+      type: 'blob',
+      sha: blobShas[b.path]
+    }));
+
+    const createTreeResp = await apiCallWithRetry(
+      GH_API + '/repos/' + newOwner + '/' + newName + '/git/trees',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'token ' + tok,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          tree: treeEntries
+        })
+      },
+      30000
+    );
+
+    if (!createTreeResp.ok) {
+      const errData = await createTreeResp.json().catch(() => ({}));
+      throw new Error(
+        'Création de l\'arbre échouée : ' +
+        (errData.message || createTreeResp.status)
+      );
+    }
+
+    const treeResult = await createTreeResp.json();
+    const newTreeSha = treeResult.sha;
+
+    log('Création du commit...');
+
+    const commitResp = await apiCallWithRetry(
+      GH_API + '/repos/' + newOwner + '/' + newName + '/git/commits',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'token ' + tok,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'Hubcode: clone complet depuis ' + srcRepo,
+          tree: newTreeSha,
+          parents: [initialCommitSha]
+        })
+      },
+      30000
+    );
+
+    if (!commitResp.ok) {
+      const errData = await commitResp.json().catch(() => ({}));
+      throw new Error(
+        'Création du commit échouée : ' +
+        (errData.message || commitResp.status)
+      );
+    }
+
+    const commitData = await commitResp.json();
+    const newCommitSha = commitData.sha;
+
+    // Mise à jour de la branche cible.
+    log('Mise à jour de la branche ' + newBranch + '...');
+
+    const updateRefResp = await apiCallWithRetry(
+      GH_API + '/repos/' + newOwner + '/' + newName +
+      '/git/refs/heads/' + encodeURIComponent(newBranch),
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': 'token ' + tok,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sha: newCommitSha,
+          force: true
+        })
+      },
+      30000
+    );
+
+    if (!updateRefResp.ok) {
+      const errData = await updateRefResp.json().catch(() => ({}));
+      throw new Error(
+        'Mise à jour de la branche échouée : ' +
+        (errData.message || updateRefResp.status)
+      );
+    }
+
+    // =====================================================
+    // ACTIVATION ET VÉRIFICATION RÉELLE DE GITHUB PAGES
+    // =====================================================
+
+    let pagesUrl = null;
+    let pagesError = null;
+
+    if (!isPrivate) {
+      try {
+        const hasRootIndex = blobs.some(
+          b => b.path.toLowerCase() === 'index.html'
+        );
+
+        const hasDocsIndex = blobs.some(
+          b => b.path.toLowerCase() === 'docs/index.html'
+        );
+
+        const pagesPath = !hasRootIndex && hasDocsIndex ? '/docs' : '/';
+
+        log('Configuration de GitHub Pages sur main' + pagesPath + '...');
+
+        const pagesPayload = {
+          source: {
+            branch: 'main',
+            path: pagesPath
+          }
+        };
+
+        let pagesResp = await apiCallWithRetry(
+          GH_API + '/repos/' + newOwner + '/' + newName + '/pages',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': 'token ' + tok,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(pagesPayload)
+          },
+          30000
+        );
+
+        if (pagesResp.status === 409) {
+          log('Pages existe déjà : mise à jour de sa source...');
+
+          pagesResp = await apiCallWithRetry(
+            GH_API + '/repos/' + newOwner + '/' + newName + '/pages',
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': 'token ' + tok,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(pagesPayload)
+            },
+            30000
+          );
+        }
+
+        if (!pagesResp.ok) {
+          const errData = await pagesResp.json().catch(() => ({}));
+          throw new Error(
+            errData.message || 'HTTP ' + pagesResp.status
+          );
+        }
+
+        log('Configuration Pages acceptée par GitHub.');
+
+        if (!hasRootIndex && !hasDocsIndex) {
+          throw new Error(
+            'Aucun index.html trouvé à la racine ou dans docs. ' +
+            'Impossible de garantir une page d’accueil.'
+          );
+        }
+
+        const pagesInfoUrl =
+          GH_API + '/repos/' + newOwner + '/' + newName + '/pages';
+
+        const pagesInfoResp = await apiCallWithRetry(
+          pagesInfoUrl,
+          {
+            headers: { 'Authorization': 'token ' + tok }
+          },
+          25000
+        );
+
+        if (pagesInfoResp.ok) {
+          const pagesInfo = await pagesInfoResp.json();
+          pagesUrl = pagesInfo.html_url || null;
+        }
+
+        if (!pagesUrl) {
+          pagesUrl = 'https://' + newOwner + '.github.io/' + newName + '/';
+        }
+
+        log('✓ Adresse Pages récupérée : ' + pagesUrl);
+
+        // -----------------------------------------------------
+        // ÉTAPE 1 : ATTENDRE LE BUILD DU BON COMMIT
+        // -----------------------------------------------------
+
+        log('Attente de la compilation GitHub Pages...');
+
+        const latestBuildUrl =
+          GH_API + '/repos/' + newOwner + '/' + newName +
+          '/pages/builds/latest';
+
+        let pagesBuildReady = false;
+        let lastBuildStatus = 'en attente';
+
+        for (let attempt = 0; attempt < 60; attempt++) {
+          statusEl.textContent =
+            'Compilation GitHub Pages : ' +
+            (attempt + 1) + '/60...';
+
+          const buildResp = await apiCallWithRetry(
+            latestBuildUrl,
+            {
+              headers: {
+                'Authorization': 'token ' + tok,
+                'Cache-Control': 'no-cache'
+              }
+            },
+            25000
+          );
+
+          if (buildResp.ok) {
+            const buildData = await buildResp.json();
+
+            const buildCommit = String(
+              buildData.commit || ''
+            ).toLowerCase();
+
+            const expectedCommit = String(
+              newCommitSha
+            ).toLowerCase();
+
+            lastBuildStatus = buildData.status || 'inconnu';
+
+            if (buildCommit === expectedCommit) {
+              if (buildData.status === 'built') {
+                pagesBuildReady = true;
+                log('✓ Compilation du commit cloné terminée.');
+                break;
+              }
+
+              if (
+                buildData.status === 'errored' ||
+                buildData.status === 'error' ||
+                buildData.status === 'failed'
+              ) {
+                const buildMessage =
+                  buildData.error && buildData.error.message
+                    ? buildData.error.message
+                    : 'Erreur de compilation GitHub Pages';
+
+                throw new Error(
+                  'Le build GitHub Pages a échoué : ' + buildMessage
+                );
+              }
+
+              log(
+                'Compilation en cours : ' + lastBuildStatus
+              );
+            } else {
+              log('GitHub prépare encore le build du nouveau commit...');
+            }
+          }
+
+          if (attempt < 59) {
+            await new Promise(r => setTimeout(r, 5000));
+          }
+        }
+
+        if (!pagesBuildReady) {
+          throw new Error(
+            'Compilation non confirmée après 5 minutes. ' +
+            'Dernier état : ' + lastBuildStatus
+          );
+        }
+
+        // -----------------------------------------------------
+        // ÉTAPE 2 : TESTER L'ADRESSE PUBLIQUE ELLE-MÊME
+        // -----------------------------------------------------
+
+        log('Compilation terminée. Test de l’adresse publique...');
+        log('Attente de 3 réponses HTTP 200 consécutives.');
+        log('Délai maximal de disponibilité : 10 minutes.');
+
+        let consecutiveReady = 0;
+        let liveSiteReady = false;
+        let lastHttpStatus = 'aucune réponse';
+
+        const siteBaseUrl = new URL(pagesUrl);
+
+        // Le cache est contourné à chaque tentative.
+        for (let attempt = 0; attempt < 120; attempt++) {
+          statusEl.textContent =
+            'Vérification du site : ' +
+            (attempt + 1) + '/120 — ' +
+            consecutiveReady + '/3 confirmations...';
+
+          try {
+            const probeUrl = new URL(siteBaseUrl.href);
+
+            probeUrl.searchParams.set(
+              '_hubcode_ready',
+              Date.now() + '-' + attempt
+            );
+
+            const siteResp = await fetch(probeUrl.href, {
+              method: 'GET',
+              cache: 'no-store',
+              redirect: 'follow',
+              credentials: 'omit',
+              headers: {
+                'Cache-Control': 'no-cache, no-store',
+                'Pragma': 'no-cache'
+              }
+            });
+
+            lastHttpStatus = 'HTTP ' + siteResp.status;
+
+            const contentType =
+              siteResp.headers.get('content-type') || '';
+
+            const siteHtml = await siteResp.text();
+
+            const isHtml =
+              contentType.toLowerCase().includes('text/html');
+
+            const bodyLooksLike404 =
+              /page not found|404 - file not found|there isn't a github pages site here|site not found/i
+                .test(siteHtml.slice(0, 6000));
+
+            const isReallyAvailable =
+              siteResp.status === 200 &&
+              isHtml &&
+              siteHtml.trim().length > 0 &&
+              !bodyLooksLike404;
+
+            if (isReallyAvailable) {
+              consecutiveReady++;
+
+              log(
+                '✓ Site accessible : HTTP 200 (' +
+                consecutiveReady + '/3)'
+              );
+
+              if (consecutiveReady >= 3) {
+                liveSiteReady = true;
+                break;
+              }
+            } else {
+              consecutiveReady = 0;
+
+              log(
+                'Site pas encore prêt : ' +
+                lastHttpStatus +
+                (isHtml ? '' : ' — réponse HTML absente') +
+                '. Nouvelle vérification...'
+              );
+            }
+
+          } catch (probeError) {
+            consecutiveReady = 0;
+
+            lastHttpStatus =
+              probeError && probeError.message
+                ? probeError.message
+                : 'Erreur réseau ou CORS';
+
+            log(
+              'Adresse pas encore vérifiable : ' +
+              lastHttpStatus +
+              '. Nouvelle tentative...'
+            );
+          }
+
+          if (attempt < 119 && !liveSiteReady) {
+            await new Promise(r => setTimeout(r, 5000));
+          }
+        }
+
+        if (!liveSiteReady) {
+          throw new Error(
+            'Le build est terminé, mais l’adresse publique n’a pas ' +
+            'fourni 3 réponses HTTP 200 consécutives après 10 minutes. ' +
+            'Dernier résultat : ' + lastHttpStatus
+          );
+        }
+
+        // -----------------------------------------------------
+        // ÉTAPE 3 : DERNIÈRE CONFIRMATION GITHUB
+        // -----------------------------------------------------
+
+        log('Site accessible. Dernière confirmation GitHub...');
+
+        const finalBuildResp = await apiCallWithRetry(
+          latestBuildUrl,
+          {
+            headers: {
+              'Authorization': 'token ' + tok,
+              'Cache-Control': 'no-cache'
+            }
+          },
+          25000
+        );
+
+        if (!finalBuildResp.ok) {
+          throw new Error(
+            'Impossible de confirmer le dernier build GitHub'
+          );
+        }
+
+        const finalBuildData = await finalBuildResp.json();
+
+        if (
+          finalBuildData.status !== 'built' ||
+          String(finalBuildData.commit || '').toLowerCase() !==
+            String(newCommitSha).toLowerCase()
+        ) {
+          throw new Error(
+            'Le dernier build ne correspond plus au commit cloné'
+          );
+        }
+
+        const finalPagesResp = await apiCallWithRetry(
+          pagesInfoUrl,
+          {
+            headers: {
+              'Authorization': 'token ' + tok,
+              'Cache-Control': 'no-cache'
+            }
+          },
+          25000
+        );
+
+        if (!finalPagesResp.ok) {
+          throw new Error(
+            'Impossible de confirmer le statut final de Pages'
+          );
+        }
+
+        const finalPagesInfo = await finalPagesResp.json();
+
+        if (finalPagesInfo.status !== 'built') {
+          throw new Error(
+            'GitHub Pages n’a pas confirmé le statut built'
+          );
+        }
+
+        pagesUrl = finalPagesInfo.html_url || pagesUrl;
+
+        // -----------------------------------------------------
+        // ÉTAPE 4 : DÉLAI DE STABILISATION DE 10 SECONDES
+        // -----------------------------------------------------
+
+        log('✓ Build GitHub confirmé.');
+        log('✓ Adresse publique testée 3 fois avec HTTP 200.');
+        log('✓ GitHub Pages est réellement accessible.');
+        log('⏳ Attente supplémentaire de 10 secondes avant la confirmation finale...');
+
+        statusEl.textContent =
+          'Site accessible — stabilisation finale : 10 secondes...';
+
+        await new Promise(r => setTimeout(r, 10000));
+
+        log('✓ Délai de stabilisation de 10 secondes terminé.');
+        log('✓ Site prêt : ' + pagesUrl);
+
+      } catch (pagesSetupError) {
+        pagesError = pagesSetupError.message || 'Erreur inconnue';
+
+        log(
+          '⚠️ Dépôt cloné, mais site Pages pas encore confirmé : ' +
+          pagesError,
+          true
+        );
+      }
+    }
+
+    // =====================================================
+    // FIN ET COMPTE RENDU
+    // =====================================================
+
+    if (!isPrivate || !pagesError) {
+      log('✓ Clonage réussi avec succès.');
+
+      if (!isPrivate) {
+        log('✓ Branche par défaut : main.');
+        log('✓ Site GitHub Pages prêt : ' + pagesUrl);
+      }
+
+      statusEl.style.color = '#4ade80';
+
+      statusEl.textContent =
+        '✓ Clonage terminé — site prêt (' +
+        blobs.length + ' fichiers)';
+
+      showNotification(
+        'Dépôt ' + newName + ' cloné — GitHub Pages est prêt',
+        'success'
+      );
+
+      setTimeout(async () => {
+        closeDupModal();
+        allRepositories = await fetchAllRepositories(tok);
+        fileCache = {};
+        renderRepos(allRepositories);
+        updateRepoCount();
+        loadFilesForVisibleRepos();
+      }, 2500);
+
+    } else {
+      statusEl.style.color = '#fcd34d';
+
+      statusEl.textContent =
+        'Dépôt cloné — publication Pages non confirmée';
+
+      log(
+        'Le dépôt existe bien, mais le site n’a pas été confirmé ' +
+        'accessible. Aucune réussite Pages ne sera annoncée.',
+        true
+      );
+
+      showNotification(
+        'Dépôt créé, mais GitHub Pages n’est pas encore prêt : ' +
+        pagesError,
+        'danger'
+      );
+
+      saveBtn.disabled = true;
+    }
+
   } catch(e) {
+    console.error('Clone error:', e);
+    log('ERREUR FATALE : ' + (e.message || e.toString()), true);
     statusEl.style.color = '#f87171';
-    statusEl.textContent = 'Erreur : ' + e.message;
-    showNotification('Échec clonage : ' + e.message, 'danger');
+    statusEl.textContent = 'Erreur : ' + (e.message || 'Inconnue');
+
+    showNotification(
+      'Échec clonage : ' + (e.message || 'Inconnue'),
+      'danger'
+    );
+
     saveBtn.disabled = false;
   }
 }
@@ -2675,6 +3619,43 @@ document.addEventListener('keydown', function(e){
 
 /* ========================================================= EXPOSE GLOBAL ========================================================= */
 window.openSheet = openSheet;
+window.copyDupDebugReport = function() {
+  const el = byId('dupDebugOutput');
+  if (!el) return;
+
+  const text = el.value;
+  if (!text) {
+    showNotification('Le rapport est vide', 'warning');
+    return;
+  }
+
+  const fallbackCopy = () => {
+    try {
+      el.focus();
+      el.select();
+      el.setSelectionRange(0, 99999);
+      const successful = document.execCommand('copy');
+      if (successful) {
+        showNotification('Rapport copié', 'success');
+      } else {
+        showNotification('Sélectionnez et copiez manuellement', 'warning');
+      }
+    } catch (err) {
+      showNotification('Copie impossible sur ce navigateur', 'danger');
+    }
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      showNotification('Rapport copié', 'success');
+    }).catch(() => {
+      fallbackCopy();
+    });
+  } else {
+    fallbackCopy();
+  }
+};
+
 window.openDupModal = openDupModal;
 window.closeSheet = closeSheet;
 window.toggleTokenView = toggleTokenView;
