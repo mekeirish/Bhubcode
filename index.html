@@ -1328,6 +1328,7 @@ async function fetchAllRepositories(tok) {
     if (data.length < 100) break;
     if (pageCount >= 30) break;
   }
+  all.sort((a, b) => new Date(b.pushed_at || b.updated_at || 0) - new Date(a.pushed_at || a.updated_at || 0));
   return all;
 }
 
@@ -1493,12 +1494,60 @@ function getTracker(repoName) {
       const newTracker = document.createElement('div');
       newTracker.id = 'tracker-' + repoName;
       newTracker.className = 'tracker-terminal';
+      newTracker.title = 'Appui long : copier les logs';
       newTracker.innerHTML = '<div class="tracker-header"><span>⛁ LOGS TEMPS RÉEL</span><span>⚡ LIVE</span></div>';
       repoDiv.appendChild(newTracker);
+      attachTrackerLongPress(newTracker, repoName);
       el = newTracker;
     }
   }
   return el;
+}
+function attachTrackerLongPress(el, repoName) {
+  let timer = null, startX = 0, startY = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  el.style.webkitTouchCallout = 'none';
+  el.addEventListener('pointerdown', (e) => {
+    startX = e.clientX || 0; startY = e.clientY || 0;
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      copyTrackerLogs(repoName);
+    }, 550);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (Math.abs((e.clientX || 0) - startX) > 10 || Math.abs((e.clientY || 0) - startY) > 10) cancel();
+  });
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+async function copyTrackerLogs(repoName) {
+  const t = byId('tracker-' + repoName);
+  if (!t) return;
+  const lines = Array.from(t.querySelectorAll('.log-line')).map(function(l) { return l.textContent.trim(); });
+  if (!lines.length) { showNotification('Console vide', 'warning'); return; }
+  const text = '=== ' + repoName + ' ===\n' + lines.join('\n');
+  haptic(20); playHum60Hz();
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    } catch (e2) { ok = false; }
+  }
+  if (ok) showNotification('Console copiée (' + lines.length + ' lignes)', 'success');
+  else showNotification('Copie impossible', 'danger');
 }
 function showTracker(repoName) { const t = getTracker(repoName); if (t) t.classList.add('show'); }
 function clearTracker(repoName) {
@@ -1692,14 +1741,13 @@ function uploadIcon(owner, repo, branch) {
     if (!file.type.startsWith('image/')) { showNotification('Veuillez sélectionner une image', 'danger'); return; }
     const reader = new FileReader();
     reader.onload = async function(ev) {
-      const base64Data = ev.target.result.split(',')[1];
-      await pushIconToRepo(owner, repo, branch, base64Data);
+      await pushIconToRepo(owner, repo, branch, ev.target.result);
     };
     reader.readAsDataURL(file);
   };
   document.body.appendChild(input); input.click(); input.remove();
 }
-async function pushIconToRepo(owner, repo, branch, base64Data) {
+async function pushIconToRepo(owner, repo, branch, dataUrl) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
   setRepoBusy(repo, true);
@@ -1707,25 +1755,28 @@ async function pushIconToRepo(owner, repo, branch, base64Data) {
   showTracker(repo);
   addLog(repo, 'Upload icône vers ' + owner + '/' + repo + '...', 'step');
   try {
-    let currentSha = null;
-    const getResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/icon.png?ref=' + branch, {
-      headers: { 'Authorization': 'token ' + tok }
+    addLog(repo, 'Chargement de l\'image...', 'loading');
+    const img = await loadImageFromSrc(dataUrl);
+    if (!img.naturalWidth || !img.naturalHeight) throw new Error('Image illisible');
+
+    const bg = await getSplashBackground(owner, repo, branch, tok, img);
+    addLog(repo, 'Fond des splashs : ' + bg, 'success');
+
+    addLog(repo, 'Génération icon.png (512) et icon-192.png...', 'loading');
+    const files = [];
+    files.push({ path: 'icon.png', b64: renderIconPng(img, 512) });
+    files.push({ path: 'icon-192.png', b64: renderIconPng(img, 192) });
+
+    addLog(repo, 'Génération des ' + SPLASH_SIZES.length + ' splashs...', 'loading');
+    SPLASH_SIZES.forEach(function(s) {
+      files.push({ path: 'splash-' + s[0] + 'x' + s[1] + '.png', b64: renderSplashPng(img, s[0], s[1], bg) });
     });
-    if (getResp.status === 200) { const data = await getResp.json(); currentSha = data.sha; }
-    else if (getResp.status !== 404) throw new Error('Erreur GET (' + getResp.status + ')');
-    const putBody = { message: 'Hubcode: upload icon.png', content: base64Data, branch: branch };
-    if (currentSha) putBody.sha = currentSha;
-    const putResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/icon.png', {
-      method: 'PUT',
-      headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
-      body: JSON.stringify(putBody)
-    });
-    if (!putResp.ok) {
-      const errData = await putResp.json().catch(()=>({}));
-      throw new Error(errData.message || 'Échec PUT (' + putResp.status + ')');
-    }
-    addLog(repo, '✅ icon.png mis à jour !', 'success');
-    showNotification('Icône uploadée pour ' + repo, 'success');
+    addLog(repo, files.length + ' fichiers PNG prêts', 'success');
+
+    const newSha = await pushFilesInOneCommit(owner, repo, branch, tok, files, 'Hubcode: icon.png + icon-192.png + splashs', repo);
+    addLog(repo, '✅ Icône et splashs mis à jour (1 commit)', 'success');
+    showNotification('Icône + splashs générés pour ' + repo, 'success');
+    try { watchPagesDeploy(owner, repo, new Response(JSON.stringify({ commit: { sha: newSha } }))); } catch (e) {}
   } catch (err) {
     addLog(repo, 'ERREUR : ' + err.message, 'error');
     showNotification('Échec upload : ' + err.message, 'danger');
@@ -1733,6 +1784,113 @@ async function pushIconToRepo(owner, repo, branch, base64Data) {
     setActivityState(false);
     setRepoBusy(repo, false);
   }
+}
+const SPLASH_SIZES = [
+  [640, 1136], [750, 1334], [828, 1792], [1125, 2436],
+  [1170, 2532], [1179, 2556], [1206, 2622], [1242, 2208],
+  [1242, 2688], [1284, 2778], [1290, 2796], [1320, 2868]
+];
+function loadImageFromSrc(src) {
+  return new Promise(function(resolve, reject) {
+    const img = new Image();
+    img.onload = function() { resolve(img); };
+    img.onerror = function() { reject(new Error('Image illisible')); };
+    img.src = src;
+  });
+}
+function renderIconPng(img, size) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  const s = Math.min(img.naturalWidth, img.naturalHeight);
+  const sx = (img.naturalWidth - s) / 2;
+  const sy = (img.naturalHeight - s) / 2;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size);
+  const b64 = c.toDataURL('image/png').split(',')[1];
+  c.width = 0; c.height = 0;
+  return b64;
+}
+function renderSplashPng(img, w, h, bg) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  const size = Math.round(Math.min(w, h) * 0.32);
+  const s = Math.min(img.naturalWidth, img.naturalHeight);
+  const sx = (img.naturalWidth - s) / 2;
+  const sy = (img.naturalHeight - s) / 2;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, sx, sy, s, s, Math.round((w - size) / 2), Math.round((h - size) / 2), size, size);
+  const b64 = c.toDataURL('image/png').split(',')[1];
+  c.width = 0; c.height = 0;
+  return b64;
+}
+async function getSplashBackground(owner, repo, branch, tok, img) {
+  try {
+    const r = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/manifest.json?ref=' + branch, {
+      headers: { 'Authorization': 'token ' + tok }
+    });
+    if (r.ok) {
+      const d = await r.json();
+      const m = JSON.parse(b64ToUtf8(d.content));
+      if (m && typeof m.background_color === 'string' && m.background_color) return m.background_color;
+    }
+  } catch (e) {}
+  try {
+    const c = document.createElement('canvas');
+    c.width = 1; c.height = 1;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, 1, 1, 0, 0, 1, 1);
+    const p = ctx.getImageData(0, 0, 1, 1).data;
+    if (p[3] >= 200) return 'rgb(' + p[0] + ',' + p[1] + ',' + p[2] + ')';
+  } catch (e) {}
+  return '#0b0f14';
+}
+async function pushFilesInOneCommit(owner, repo, branch, tok, files, message, logRepo) {
+  const base = GH_API + '/repos/' + owner + '/' + repo;
+  const h = { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' };
+  const jsonOrThrow = async function(resp, label) {
+    if (!resp.ok) {
+      let m = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); if (e.message) m = e.message; } catch (_) {}
+      throw new Error(label + ' : ' + m);
+    }
+    return resp.json();
+  };
+
+  addLog(logRepo, 'Lecture de la branche ' + branch + '...', 'loading');
+  const ref = await jsonOrThrow(await ghFetch(base + '/git/ref/heads/' + branch, { headers: h }), 'Branche');
+  const parentSha = ref.object.sha;
+  const parent = await jsonOrThrow(await ghFetch(base + '/git/commits/' + parentSha, { headers: h }), 'Commit parent');
+
+  const entries = [];
+  for (let i = 0; i < files.length; i++) {
+    addLog(logRepo, 'Envoi ' + files[i].path + ' (' + (i + 1) + '/' + files.length + ')...', 'loading');
+    const blob = await jsonOrThrow(await ghFetch(base + '/git/blobs', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ content: files[i].b64, encoding: 'base64' })
+    }, 60000), 'Blob ' + files[i].path);
+    entries.push({ path: files[i].path, mode: '100644', type: 'blob', sha: blob.sha });
+  }
+
+  addLog(logRepo, 'Assemblage du commit...', 'loading');
+  const tree = await jsonOrThrow(await ghFetch(base + '/git/trees', {
+    method: 'POST', headers: h,
+    body: JSON.stringify({ base_tree: parent.tree.sha, tree: entries })
+  }, 30000), 'Arbre');
+  const commit = await jsonOrThrow(await ghFetch(base + '/git/commits', {
+    method: 'POST', headers: h,
+    body: JSON.stringify({ message: message, tree: tree.sha, parents: [parentSha] })
+  }, 30000), 'Commit');
+  await jsonOrThrow(await ghFetch(base + '/git/refs/heads/' + branch, {
+    method: 'PATCH', headers: h,
+    body: JSON.stringify({ sha: commit.sha })
+  }, 30000), 'Mise à jour branche');
+  return commit.sha;
 }
 
 async function injectPwaToRepo(owner, repo, branch) {
@@ -1744,74 +1902,162 @@ async function injectPwaToRepo(owner, repo, branch) {
   addLog(repo, 'Début injection PWA sur ' + owner + '/' + repo, 'step');
 
   try {
-    addLog(repo, 'Récupération de index.html...', 'loading');
-    const getResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/index.html?ref=' + branch, {
+    addLog(repo, 'Analyse du dépôt...', 'loading');
+    const listResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents?ref=' + encodeURIComponent(branch), {
       headers: { 'Authorization': 'token ' + tok }
     });
-    let currentSha = null;
-    let originalHtml = '';
-    if (getResp.status === 200) {
-      const data = await getResp.json();
-      currentSha = data.sha;
-      originalHtml = b64ToUtf8(data.content);
-      addLog(repo, 'Fichier récupéré', 'success');
-    } else if (getResp.status === 404) {
-      addLog(repo, 'index.html introuvable, création minimale', 'warning');
-      originalHtml = '<!DOCTYPE html><html><head><title>' + repo + '</title></head><body><h1>' + repo + '</h1></body></html>';
-      currentSha = null;
-    } else {
-      throw new Error('HTTP ' + getResp.status);
+    let names = [];
+    if (listResp.ok) {
+      const items = await listResp.json();
+      if (Array.isArray(items)) names = items.filter(function(i) { return i.type === 'file'; }).map(function(i) { return i.name; });
+    } else if (listResp.status !== 404) {
+      throw new Error('Lecture du dépôt (HTTP ' + listResp.status + ')');
     }
-
-    const headElements = [
-      '<link rel="manifest" href="./manifest.json">',
-      '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-      '<meta name="theme-color" content="#4b6cb7">',
-      '<meta name="apple-mobile-web-app-capable" content="yes">',
-      '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
-      '<link rel="apple-touch-icon" href="icon.png">'
-    ].join('\n');
-
-    const swScript = '\n<script>\n' +
-      "if ('serviceWorker' in navigator) {\n" +
-      "  window.addEventListener('load', function() {\n" +
-      "    navigator.serviceWorker.register('./sw.js')\n" +
-      "      .then(function(reg) { console.log('SW enregistré'); })\n" +
-      "      .catch(function(err) { console.error('SW err', err); });\n" +
-      "  });\n" +
-      "}\n" +
-      '<\/script>\n';
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(originalHtml, 'text/html');
-    if (doc.head) doc.head.insertAdjacentHTML('beforeend', headElements);
-    else doc.documentElement.insertAdjacentHTML('afterbegin', '<head>' + headElements + '</head>');
-    if (doc.body) doc.body.insertAdjacentHTML('beforeend', swScript);
-    else doc.documentElement.insertAdjacentHTML('beforeend', '<body>' + swScript + '</body>');
-    let updatedHtml = doc.documentElement.outerHTML;
-    if (!originalHtml.toLowerCase().includes('<!doctype html>')) updatedHtml = '<!DOCTYPE html>\n' + updatedHtml;
-
-    const b64Content = utf8ToB64(updatedHtml);
-    addLog(repo, 'Balises PWA injectées', 'success');
-
-    addLog(repo, 'Envoi de la mise à jour...', 'loading');
-    const putBody = {
-      message: 'Hubcode: injection PWA (manifest + service worker)',
-      content: b64Content,
-      branch: branch
+    const has = function(n) { return names.indexOf(n) !== -1; };
+    const rep = { added: [], fixed: [], warn: [], notes: [] };
+    const toPush = [];
+    const pushedNames = [];
+    const filePush = function(path, b64) {
+      toPush.push({ path: path, b64: b64 });
+      if (pushedNames.indexOf(path) === -1) pushedNames.push(path);
     };
-    if (currentSha) putBody.sha = currentSha;
-    const putResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents/index.html', {
-      method: 'PUT',
-      headers: { 'Authorization': 'token ' + tok, 'Content-Type': 'application/json' },
-      body: JSON.stringify(putBody)
-    });
-    if (!putResp.ok) {
-      const errData = await putResp.json();
-      throw new Error(errData.message || 'Erreur mise à jour');
+
+    // ---- index.html
+    const htmlFile = has('index.html') ? await hcReadFile(owner, repo, branch, tok, 'index.html') : null;
+    let originalHtml;
+    if (htmlFile) {
+      originalHtml = b64ToUtf8(htmlFile.b64);
+      addLog(repo, 'index.html lu', 'success');
+    } else {
+      addLog(repo, 'index.html introuvable, création minimale', 'warning');
+      originalHtml = '<!DOCTYPE html>\n<html lang="fr">\n<head>\n<meta charset="UTF-8">\n<title>' + escapeHtml(repo) + '</title>\n</head>\n<body>\n<h1>' + escapeHtml(repo) + '</h1>\n</body>\n</html>\n';
+      rep.added.push('index.html minimal');
     }
-    addLog(repo, '✅ index.html mis à jour !', 'success');
+    const meta = hcReadHtmlMeta(originalHtml);
+
+    // ---- manifest.json (lecture)
+    const mFile = has('manifest.json') ? await hcReadFile(owner, repo, branch, tok, 'manifest.json') : null;
+    const mText = mFile ? b64ToUtf8(mFile.b64) : null;
+    let pre = null;
+    try { pre = mText ? JSON.parse(mText.replace(/^\uFEFF/, '')) : null; } catch (e) { pre = null; }
+    if (!pre || typeof pre !== 'object' || Array.isArray(pre)) pre = {};
+    const baseBg = (typeof pre.background_color === 'string' && pre.background_color) || '#0b0f14';
+    const baseTheme = meta.theme || (typeof pre.theme_color === 'string' && pre.theme_color) || baseBg;
+    const appName = meta.title || repo;
+    const shortName = ((appName.split(/\s[-—–|:]\s/)[0] || repo).trim().slice(0, 12)) || repo.slice(0, 12);
+    const letter = (appName.trim().charAt(0) || 'A').toUpperCase();
+
+    // ---- icônes
+    addLog(repo, 'Vérification des icônes...', 'loading');
+    const icon512File = has('icon.png') ? await hcReadFile(owner, repo, branch, tok, 'icon.png') : null;
+    let b64_512 = icon512File ? icon512File.b64 : null;
+    let size512 = b64_512 ? hcPngSize(b64_512) : null;
+    let size192 = null;
+
+    if (!b64_512) {
+      b64_512 = hcRenderLetterIcon(letter, 512, baseTheme);
+      size512 = { w: 512, h: 512 };
+      filePush('icon.png', b64_512);
+      rep.added.push('icon.png provisoire (lettre ' + letter + ')');
+      rep.notes.push('icon.png absent : icône provisoire créée, utilise ICON pour mettre la tienne');
+    } else if (!size512 || size512.w < 512 || size512.w !== size512.h) {
+      try {
+        const imgFix = await loadImageFromSrc('data:image/png;base64,' + b64_512);
+        b64_512 = renderIconPng(imgFix, 512);
+        size512 = { w: 512, h: 512 };
+        filePush('icon.png', b64_512);
+        rep.fixed.push('icon.png remis en PNG carré 512x512');
+      } catch (e) {
+        size512 = null;
+        rep.warn.push('icon.png illisible : utilise le bouton ICON');
+      }
+    }
+
+    const had192 = has('icon-192.png');
+    if (had192) {
+      const f192 = await hcReadFile(owner, repo, branch, tok, 'icon-192.png');
+      if (f192) size192 = hcPngSize(f192.b64);
+    }
+    if (b64_512 && size512 && (!had192 || !size192 || size192.w < 192 || size192.w !== size192.h)) {
+      try {
+        const img192 = await loadImageFromSrc('data:image/png;base64,' + b64_512);
+        filePush('icon-192.png', renderIconPng(img192, 192));
+        size192 = { w: 192, h: 192 };
+        if (had192) rep.fixed.push('icon-192.png régénéré en 192x192');
+        else rep.added.push('icon-192.png');
+      } catch (e) {
+        rep.warn.push('icon-192.png non généré');
+      }
+    }
+    const allNames = names.concat(pushedNames);
+
+    // ---- manifest.json (correction)
+    const mRes = hcFixManifest(mText, {
+      name: appName, shortName: shortName, bg: baseBg, theme: baseTheme,
+      files: allNames,
+      has192: allNames.indexOf('icon-192.png') !== -1,
+      has512: allNames.indexOf('icon.png') !== -1,
+      size192: size192, size512: size512, warns: rep.warn
+    });
+    if (mRes.changes.length > 0) {
+      filePush('manifest.json', utf8ToB64(mRes.text));
+      if (mText && mText.trim()) rep.fixed.push('manifest.json : ' + mRes.changes.join(', '));
+      else rep.added.push('manifest.json');
+    }
+
+    // ---- sw.js
+    const sFile = has('sw.js') ? await hcReadFile(owner, repo, branch, tok, 'sw.js') : null;
+    const sRes = hcPatchSw(sFile ? b64ToUtf8(sFile.b64) : null, repo);
+    if (sRes.state === 'created') {
+      filePush('sw.js', utf8ToB64(sRes.text));
+      rep.added.push('sw.js');
+    } else if (sRes.state === 'patched') {
+      filePush('sw.js', utf8ToB64(sRes.text));
+      rep.fixed.push('sw.js : gestionnaire fetch ajouté (requis pour l\'installation)');
+    }
+
+    // ---- index.html (balises, splashs, SW, bouton installer)
+    const splashNames = names.filter(function(n) { return /^splash-\d+x\d+\.png$/.test(n); });
+    const newHtml = hcPatchHtml(originalHtml, {
+      rep: rep,
+      theme: mRes.manifest.theme_color,
+      splashNames: splashNames
+    });
+    if (!htmlFile || newHtml !== originalHtml) filePush('index.html', utf8ToB64(newHtml));
+
+    rep.added.forEach(function(x) { addLog(repo, '+ ' + x, 'success'); });
+    rep.fixed.forEach(function(x) { addLog(repo, '~ ' + x, 'success'); });
+    rep.notes.forEach(function(x) { addLog(repo, 'ℹ ' + x, 'step'); });
+    rep.warn.forEach(function(x) { addLog(repo, x, 'warning'); });
+
+    if (toPush.length === 0) {
+      addLog(repo, '✅ Rien à corriger : installabilité déjà conforme', 'success');
+      showNotification('PWA déjà conforme', 'success');
+      return;
+    }
+
+    const paths = toPush.map(function(f) { return f.path; });
+    const newSha = await pushFilesInOneCommit(owner, repo, branch, tok, toPush, 'Hubcode: injection PWA (' + paths.join(', ') + ')', repo);
+    addLog(repo, '✅ PWA injectée (1 commit) : ' + paths.join(', '), 'success');
     showNotification('Injection PWA terminée', 'success');
+    try { watchPagesDeploy(owner, repo, new Response(JSON.stringify({ commit: { sha: newSha } }))); } catch (e) {}
+
+    try {
+      delete fileCache[repo]; delete allFilesCache[repo]; delete linesCache[owner + '/' + repo];
+      const freshFiles = await loadFilesForRepo(owner, repo, branch, tok);
+      const filesRow = byId('files-' + repo);
+      if (filesRow && freshFiles && freshFiles.length > 0) {
+        filesRow.innerHTML = '';
+        freshFiles.forEach(function(fn) { filesRow.appendChild(createFileButton(owner, repo, fn, branch)); });
+      }
+      const raw = allFilesCache[repo] || [];
+      const complete = ['index.html', 'manifest.json', 'sw.js', 'icon.png'].every(function(f) { return raw.indexOf(f) !== -1; });
+      const repoEl = byId('repo-' + repo);
+      if (repoEl) repoEl.classList.toggle('repo-incomplete', !complete);
+      if (freshFiles && freshFiles.indexOf('index.html') !== -1) {
+        loadIndexLineCount(owner, repo, branch, tok).then(function(c) { updateLinesBadge(repo, c); });
+      }
+    } catch (e) {}
   } catch (err) {
     addLog(repo, 'ERREUR : ' + err.message, 'error');
     showNotification('Échec injection : ' + err.message, 'danger');
@@ -1819,6 +2065,557 @@ async function injectPwaToRepo(owner, repo, branch) {
     setActivityState(false);
     setRepoBusy(repo, false);
   }
+}
+const HC_MARK = {
+  installStart: '<' + '!-- HUBCODE-INSTALL:START -->',
+  installEnd: '<' + '!-- HUBCODE-INSTALL:END -->',
+  swRegStart: '<' + '!-- HUBCODE-SWREG:START -->',
+  swRegEnd: '<' + '!-- HUBCODE-SWREG:END -->',
+  splashStart: '<' + '!-- HUBCODE-SPLASH:START -->',
+  splashEnd: '<' + '!-- HUBCODE-SPLASH:END -->'
+};
+async function hcReadFile(owner, repo, branch, tok, path) {
+  const base = GH_API + '/repos/' + owner + '/' + repo;
+  const r = await ghFetch(base + '/contents/' + path + '?ref=' + encodeURIComponent(branch), {
+    headers: { 'Authorization': 'token ' + tok }
+  });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('Lecture ' + path + ' (HTTP ' + r.status + ')');
+  const d = await r.json();
+  let b64 = (d.content || '').replace(/\s/g, '');
+  if (!b64 && d.sha) {
+    const br = await ghFetch(base + '/git/blobs/' + d.sha, { headers: { 'Authorization': 'token ' + tok } }, 60000);
+    if (br.ok) {
+      const bd = await br.json();
+      b64 = (bd.content || '').replace(/\s/g, '');
+    }
+  }
+  return { b64: b64, sha: d.sha };
+}
+function hcPngSize(b64) {
+  try {
+    const bin = atob(String(b64).replace(/\s/g, '').slice(0, 44));
+    if (bin.length < 24 || bin.charCodeAt(0) !== 0x89 || bin.substr(1, 3) !== 'PNG') return null;
+    const rd = function(o) {
+      return ((bin.charCodeAt(o) << 24) | (bin.charCodeAt(o + 1) << 16) | (bin.charCodeAt(o + 2) << 8) | bin.charCodeAt(o + 3)) >>> 0;
+    };
+    return { w: rd(16), h: rd(20) };
+  } catch (e) { return null; }
+}
+function hcRenderLetterIcon(letter, size, bg) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = bg || '#0b0f14';
+  ctx.fillRect(0, 0, size, size);
+  let fg = '#ffffff';
+  try {
+    const p = ctx.getImageData(0, 0, 1, 1).data;
+    const lum = (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / 255;
+    if (lum > 0.6) fg = '#0f172a';
+  } catch (e) {}
+  ctx.fillStyle = fg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 ' + Math.round(size * 0.5) + 'px Inter, system-ui, sans-serif';
+  ctx.fillText(letter, size / 2, size / 2 + size * 0.03);
+  const b64 = c.toDataURL('image/png').split(',')[1];
+  c.width = 0; c.height = 0;
+  return b64;
+}
+function hcCountOf(s, sub) {
+  return String(s).split(sub).length - 1;
+}
+function hcFindBlock(s, start, end) {
+  const a = s.indexOf(start);
+  if (a === -1) return null;
+  const b = s.indexOf(end, a);
+  if (b === -1) return null;
+  return { a: a, b: b + end.length };
+}
+function hcStripBlock(s, start, end) {
+  let guard = 0;
+  let r = hcFindBlock(s, start, end);
+  while (r && guard++ < 20) {
+    s = s.slice(0, r.a).replace(/\n?[ \t]*$/, '') + s.slice(r.b);
+    r = hcFindBlock(s, start, end);
+  }
+  return s;
+}
+function hcUpsertBlock(s, start, end, block, insertFn) {
+  if (hcCountOf(s, start) > 1) s = hcStripBlock(s, start, end);
+  const r = hcFindBlock(s, start, end);
+  if (r) {
+    if (s.slice(r.a, r.b) === block) return { text: s, state: 'same' };
+    return { text: s.slice(0, r.a) + block + s.slice(r.b), state: 'updated' };
+  }
+  return { text: insertFn(s, block), state: 'added' };
+}
+function hcReadHtmlMeta(html) {
+  const he = html.search(/<\/head\s*>/i);
+  const head = he === -1 ? html.slice(0, 4000) : html.slice(0, he);
+  const t = head.match(/<title[^>]*>([\s\S]*?)<\/title\s*>/i);
+  const th = head.match(/<meta\b[^>]*\bname\s*=\s*["']theme-color["'][^>]*>/i);
+  let theme = null;
+  if (th) {
+    const c = th[0].match(/\bcontent\s*=\s*["']([^"']+)["']/i);
+    if (c) theme = c[1].trim();
+  }
+  return { title: t ? t[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '', theme: theme };
+}
+function hcIconMax(sizes) {
+  let max = 0;
+  String(sizes || '').split(/\s+/).forEach(function(tk) {
+    const m = tk.match(/^(\d+)x(\d+)$/i);
+    if (m) max = Math.max(max, Math.min(parseInt(m[1], 10), parseInt(m[2], 10)));
+  });
+  return max;
+}
+function hcFixManifest(rawText, ctx) {
+  const changes = [];
+  let m = null;
+  if (rawText && rawText.trim()) {
+    try { m = JSON.parse(rawText.replace(/^\uFEFF/, '')); } catch (e) { m = null; }
+    if (!m || typeof m !== 'object' || Array.isArray(m)) {
+      m = null;
+      changes.push('manifest invalide : régénéré');
+    }
+  } else {
+    changes.push('créé');
+  }
+  if (!m) m = {};
+
+  const fixRel = function(v) {
+    if (typeof v !== 'string') return v;
+    return /^\/(?!\/)/.test(v) ? './' + v.replace(/^\/+/, '') : v;
+  };
+
+  if (typeof m.name !== 'string' || !m.name.trim()) { m.name = ctx.name; changes.push('name'); }
+  if (typeof m.short_name !== 'string' || !m.short_name.trim()) { m.short_name = ctx.shortName; changes.push('short_name'); }
+  if (typeof m.start_url !== 'string' || !m.start_url.trim()) {
+    m.start_url = './';
+    changes.push('start_url');
+  } else {
+    const su = fixRel(m.start_url);
+    if (su !== m.start_url) { m.start_url = su; changes.push('start_url relatif'); }
+  }
+  if (typeof m.scope === 'string') {
+    const sc = fixRel(m.scope);
+    if (sc !== m.scope) { m.scope = sc; changes.push('scope relatif'); }
+  }
+  if (['standalone', 'fullscreen', 'minimal-ui'].indexOf(m.display) === -1) { m.display = 'standalone'; changes.push('display'); }
+  if (typeof m.background_color !== 'string' || !m.background_color) { m.background_color = ctx.bg; changes.push('background_color'); }
+  if (typeof m.theme_color !== 'string' || !m.theme_color) { m.theme_color = ctx.theme || m.background_color; changes.push('theme_color'); }
+
+  const icons = Array.isArray(m.icons) ? m.icons : [];
+  const before = JSON.stringify(m.icons === undefined ? [] : m.icons);
+  const cleaned = [];
+  icons.forEach(function(ic) {
+    if (!ic || typeof ic.src !== 'string' || !ic.src) return;
+    const src = fixRel(ic.src);
+    const bare = src.replace(/^\.\//, '').split(/[?#]/)[0];
+    const external = /^[a-z][a-z0-9+.\-]*:/i.test(bare);
+    if (!external && bare.indexOf('/') === -1 && ctx.files.indexOf(bare) === -1) return;
+    const copy = Object.assign({}, ic, { src: src });
+    if (bare === 'icon.png' && ctx.size512) copy.sizes = ctx.size512.w + 'x' + ctx.size512.h;
+    if (bare === 'icon-192.png' && ctx.size192) copy.sizes = ctx.size192.w + 'x' + ctx.size192.h;
+    cleaned.push(copy);
+  });
+  const seen = {};
+  const out = [];
+  cleaned.forEach(function(ic) {
+    const k = ic.src + '|' + (ic.sizes || '') + '|' + (ic.purpose || '');
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(ic);
+  });
+  const okPurpose = function(i) { return !i.purpose || /(^|\s)any(\s|$)/.test(i.purpose); };
+  const hasIcon = function(min) {
+    return out.some(function(i) { return okPurpose(i) && hcIconMax(i.sizes) >= min; });
+  };
+  if (!hasIcon(192) && ctx.has192) {
+    out.push({ src: 'icon-192.png', sizes: ctx.size192 ? ctx.size192.w + 'x' + ctx.size192.h : '192x192', type: 'image/png', purpose: 'any' });
+  }
+  if (!hasIcon(512) && ctx.has512) {
+    out.push({ src: 'icon.png', sizes: ctx.size512 ? ctx.size512.w + 'x' + ctx.size512.h : '512x512', type: 'image/png', purpose: 'any' });
+  }
+  if (JSON.stringify(out) !== before) changes.push('icons');
+  m.icons = out;
+  if (!hasIcon(192)) ctx.warns.push('Aucune icône 192x192 valide : PWA non installable, utilise ICON');
+  if (!hasIcon(512)) ctx.warns.push('Aucune icône 512x512 valide : PWA non installable, utilise ICON');
+
+  return { text: JSON.stringify(m, null, 2) + '\n', changes: changes, manifest: m };
+}
+function hcDefaultSw(repo) {
+  const prefix = 'hc-' + String(repo).toLowerCase().replace(/[^a-z0-9_.-]/g, '-') + '-';
+  return [
+    "/* Service worker généré par Hubcode */",
+    "const PREFIX = " + JSON.stringify(prefix) + ";",
+    "const CACHE = PREFIX + 'v1';",
+    "const ASSETS = ['./', './index.html', './manifest.json', './icon.png'];",
+    "",
+    "self.addEventListener('install', function (event) {",
+    "  self.skipWaiting();",
+    "  event.waitUntil(caches.open(CACHE).then(function (cache) {",
+    "    return Promise.all(ASSETS.map(function (url) { return cache.add(url).catch(function () {}); }));",
+    "  }));",
+    "});",
+    "",
+    "self.addEventListener('activate', function (event) {",
+    "  event.waitUntil(",
+    "    caches.keys().then(function (keys) {",
+    "      return Promise.all(keys.filter(function (k) { return k.indexOf(PREFIX) === 0 && k !== CACHE; }).map(function (k) { return caches.delete(k); }));",
+    "    }).then(function () { return self.clients.claim(); })",
+    "  );",
+    "});",
+    "",
+    "self.addEventListener('fetch', function (event) {",
+    "  const req = event.request;",
+    "  if (req.method !== 'GET') return;",
+    "  const url = new URL(req.url);",
+    "  if (url.origin !== self.location.origin) return;",
+    "  event.respondWith(",
+    "    fetch(req).then(function (res) {",
+    "      if (res && res.ok && res.status === 200) {",
+    "        const copy = res.clone();",
+    "        caches.open(CACHE).then(function (cache) { return cache.put(req, copy); }).catch(function () {});",
+    "      }",
+    "      return res;",
+    "    }).catch(function () {",
+    "      return caches.match(req).then(function (cached) {",
+    "        return cached || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error());",
+    "      });",
+    "    })",
+    "  );",
+    "});",
+    ""
+  ].join('\n');
+}
+function hcPatchSw(text, repo) {
+  if (text === null || !text.trim()) return { text: hcDefaultSw(repo), state: 'created' };
+  if (/addEventListener\s*\(\s*["']fetch["']/.test(text) || /\bonfetch\b/.test(text) || /importScripts\s*\(|workbox/i.test(text)) {
+    return { text: text, state: 'ok' };
+  }
+  const block = [
+    '',
+    '',
+    '/* HUBCODE-SW:START */',
+    "self.addEventListener('fetch', function (event) {",
+    "  if (event.request.method !== 'GET') return;",
+    "  event.respondWith(fetch(event.request).catch(function () {",
+    "    return caches.match(event.request).then(function (r) { return r || Response.error(); });",
+    "  }));",
+    "});",
+    '/* HUBCODE-SW:END */',
+    ''
+  ].join('\n');
+  return { text: text.replace(/\s*$/, '') + block, state: 'patched' };
+}
+function hcBuildSplashBlock(names) {
+  const lines = [];
+  SPLASH_SIZES.forEach(function(s) {
+    const file = 'splash-' + s[0] + 'x' + s[1] + '.png';
+    if (names.indexOf(file) === -1) return;
+    const dpr = s[0] <= 828 ? 2 : 3;
+    lines.push('<link rel="apple-touch-startup-image" href="./' + file + '" media="(device-width: ' + (s[0] / dpr) + 'px) and (device-height: ' + (s[1] / dpr) + 'px) and (-webkit-device-pixel-ratio: ' + dpr + ') and (orientation: portrait)">');
+  });
+  if (!lines.length) return '';
+  return HC_MARK.splashStart + '\n' + lines.join('\n') + '\n' + HC_MARK.splashEnd;
+}
+function hcBuildInstallBlock() {
+  const body = `<style>
+#hc-install{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:2147483000;display:none;align-items:center;gap:8px;font:600 14px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none;}
+#hc-install.hc-show{display:flex;animation:hc-in .35s cubic-bezier(.2,.8,.2,1);}
+#hc-install button{font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.hc-install-main{display:flex;align-items:center;gap:8px;height:46px;padding:0 18px 0 14px;border-radius:23px;border:1px solid rgba(255,255,255,.2);color:#fff;background:linear-gradient(135deg,#15803d,#0f766e);box-shadow:0 8px 24px rgba(0,0,0,.35);transition:transform .15s ease,filter .15s ease;}
+.hc-install-main:active{transform:scale(.96);filter:brightness(1.1);}
+.hc-install-main:focus-visible,.hc-install-x:focus-visible,.hc-help-ok:focus-visible{outline:2px solid #fff;outline-offset:2px;}
+.hc-install-main svg{width:20px;height:20px;flex:0 0 20px;}
+.hc-install-x{width:30px;height:30px;border-radius:15px;border:1px solid rgba(255,255,255,.2);background:rgba(15,23,42,.8);color:#e2e8f0;font-size:13px;line-height:1;}
+#hc-install-help{position:fixed;inset:0;z-index:2147483001;display:none;align-items:flex-end;justify-content:center;padding:16px;background:rgba(2,6,23,.6);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);}
+#hc-install-help.hc-open{display:flex;}
+.hc-help-card{width:100%;max-width:420px;margin-bottom:env(safe-area-inset-bottom,0px);padding:20px;border-radius:20px;background:#0f172a;color:#e2e8f0;border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 60px rgba(0,0,0,.6);font:500 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+.hc-help-title{font-weight:800;font-size:16px;margin-bottom:10px;color:#86efac;}
+.hc-help-steps{margin:0 0 16px;padding-left:20px;display:flex;flex-direction:column;gap:6px;}
+.hc-help-ok{width:100%;height:44px;border-radius:12px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.15);color:#86efac;font:700 14px system-ui,sans-serif;}
+@keyframes hc-in{from{opacity:0;transform:translateY(12px) scale(.96);}to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){#hc-install.hc-show{animation:none;}}
+@media print{#hc-install,#hc-install-help{display:none !important;}}
+</style>
+<div id="hc-install" role="region" aria-label="PWA">
+  <button type="button" class="hc-install-main" id="hc-install-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg><span id="hc-install-label"></span></button>
+  <button type="button" class="hc-install-x" id="hc-install-x">✕</button>
+</div>
+<div id="hc-install-help" role="dialog" aria-modal="true" aria-labelledby="hc-help-title">
+  <div class="hc-help-card">
+    <div class="hc-help-title" id="hc-help-title"></div>
+    <ol class="hc-help-steps" id="hc-help-steps"></ol>
+    <button type="button" class="hc-help-ok" id="hc-help-ok"></button>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var root = document.getElementById('hc-install');
+  var btn = document.getElementById('hc-install-btn');
+  var xBtn = document.getElementById('hc-install-x');
+  var label = document.getElementById('hc-install-label');
+  var help = document.getElementById('hc-install-help');
+  var hTitle = document.getElementById('hc-help-title');
+  var hSteps = document.getElementById('hc-help-steps');
+  var hOk = document.getElementById('hc-help-ok');
+  if (!root || !btn || !help) return;
+
+  var KEY = 'hc_install_hidden_until';
+  var ua = navigator.userAgent || '';
+  var lang = String(document.documentElement.lang || navigator.language || 'fr').toLowerCase();
+  var fr = lang.indexOf('fr') === 0;
+  var T = fr ? {
+    install: "Installer l'app", hide: "Masquer", title: "Installer l'application", ok: "OK",
+    ios: ["Touche le bouton Partager de Safari (le carré avec la flèche vers le haut).", "Fais défiler et choisis « Sur l'écran d'accueil ».", "Valide avec « Ajouter »."],
+    other: ["Ouvre le menu du navigateur (⋮).", "Choisis « Installer l'application » ou « Ajouter à l'écran d'accueil ».", "Confirme l'installation."]
+  } : {
+    install: "Install app", hide: "Dismiss", title: "Install the app", ok: "OK",
+    ios: ["Tap the Share button in Safari (the square with an up arrow).", "Scroll down and choose “Add to Home Screen”.", "Confirm with “Add”."],
+    other: ["Open the browser menu (⋮).", "Choose “Install app” or “Add to Home screen”.", "Confirm the installation."]
+  };
+  var isIOS = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var isAndroid = /android/i.test(ua);
+  var deferred = null;
+
+  function isStandalone() {
+    try {
+      return window.matchMedia('(display-mode: standalone)').matches ||
+             window.matchMedia('(display-mode: fullscreen)').matches ||
+             window.matchMedia('(display-mode: minimal-ui)').matches ||
+             navigator.standalone === true;
+    } catch (e) { return navigator.standalone === true; }
+  }
+  function isHidden() {
+    try { return Number(localStorage.getItem(KEY) || 0) > Date.now(); } catch (e) { return false; }
+  }
+  function show() { if (isStandalone() || isHidden()) return; root.classList.add('hc-show'); }
+  function hide() { root.classList.remove('hc-show'); }
+  function openHelp(steps) {
+    hTitle.textContent = T.title;
+    hSteps.innerHTML = '';
+    for (var i = 0; i < steps.length; i++) {
+      var li = document.createElement('li');
+      li.textContent = steps[i];
+      hSteps.appendChild(li);
+    }
+    hOk.textContent = T.ok;
+    help.classList.add('hc-open');
+    try { hOk.focus(); } catch (e) {}
+  }
+  function closeHelp() { help.classList.remove('hc-open'); }
+
+  label.textContent = T.install;
+  xBtn.setAttribute('aria-label', T.hide);
+  xBtn.setAttribute('title', T.hide);
+
+  btn.addEventListener('click', function () {
+    if (deferred) {
+      var p = deferred;
+      deferred = null;
+      p.prompt();
+      if (p.userChoice && p.userChoice.then) {
+        p.userChoice.then(function (c) { if (c && c.outcome === 'accepted') hide(); }, function () {});
+      }
+      return;
+    }
+    openHelp(isIOS ? T.ios : T.other);
+  });
+  xBtn.addEventListener('click', function () {
+    try { localStorage.setItem(KEY, String(Date.now() + 7 * 24 * 3600 * 1000)); } catch (e) {}
+    hide();
+  });
+  hOk.addEventListener('click', closeHelp);
+  help.addEventListener('click', function (e) { if (e.target === help) closeHelp(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeHelp(); });
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferred = e;
+    show();
+  });
+  window.addEventListener('appinstalled', function () {
+    deferred = null;
+    hide();
+  });
+
+  if (isStandalone()) return;
+  if (isIOS) { show(); }
+  else if (isAndroid) { setTimeout(function () { if (!deferred) show(); }, 3000); }
+})();
+<\/script>`;
+  return HC_MARK.installStart + '\n' + body + '\n' + HC_MARK.installEnd;
+}
+function hcPatchHtml(html, ctx) {
+  const rep = ctx.rep;
+  const he = html.search(/<\/head\s*>/i);
+  const noHead = he === -1;
+  let head = noHead ? '' : html.slice(0, he);
+  let rest = noHead ? html : html.slice(he);
+  const tailWs = (head.match(/\s*$/) || [''])[0];
+  head = head.slice(0, head.length - tailWs.length);
+  const adds = [];
+  const theme = escapeHtml(ctx.theme || '#0b0f14');
+  const norm = function(t) {
+    return t.toLowerCase().replace(/\s+/g, ' ').replace(/(href|src)=(["'])\.\//g, '$1=$2').replace(/\s*\/>$/, '>');
+  };
+
+  // ---- balises <head> : ajout si absent, suppression des doublons
+  const specs = [
+    { label: 'lien manifest', re: /<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/gi, unique: true,
+      tag: '<link rel="manifest" href="./manifest.json">' },
+    { label: 'meta viewport', re: /<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*>/gi, unique: true,
+      tag: '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' },
+    { label: 'meta theme-color', re: /<meta\b[^>]*\bname\s*=\s*["']theme-color["'][^>]*>/gi, unique: true, exempt: /\bmedia\s*=/i,
+      tag: '<meta name="theme-color" content="' + theme + '">' },
+    { label: 'meta apple-mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-capable["'][^>]*>/gi, unique: true,
+      tag: '<meta name="apple-mobile-web-app-capable" content="yes">' },
+    { label: 'meta mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']mobile-web-app-capable["'][^>]*>/gi, unique: true,
+      tag: '<meta name="mobile-web-app-capable" content="yes">' },
+    { label: 'meta apple status-bar-style', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-status-bar-style["'][^>]*>/gi, unique: true,
+      tag: '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' },
+    { label: 'apple-touch-icon', re: /<link\b[^>]*\brel\s*=\s*["']apple-touch-icon(?:-precomposed)?["'][^>]*>/gi, unique: false,
+      tag: '<link rel="apple-touch-icon" href="./icon.png">' }
+  ];
+  specs.forEach(function(sp) {
+    const seen = {};
+    let count = 0, removed = 0;
+    head = head.replace(sp.re, function(m) {
+      count++;
+      if (sp.exempt && sp.exempt.test(m)) return m;
+      const key = sp.unique ? 'u' : norm(m);
+      if (seen[key]) { removed++; return '\u0000HCDEL\u0000'; }
+      seen[key] = true;
+      return m;
+    });
+    head = head.replace(/\n?[ \t]*\u0000HCDEL\u0000/g, '');
+    if (removed) rep.fixed.push(sp.label + ' : ' + removed + ' doublon(s) supprimé(s)');
+    if (count === 0) { adds.push(sp.tag); rep.added.push(sp.label); }
+  });
+
+  // ---- href du manifest (chemin absolu = cassé sur GitHub Pages)
+  head = head.replace(/<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/i, function(m) {
+    const hm = m.match(/\bhref\s*=\s*["']([^"']*)["']/i);
+    if (!hm) return m;
+    const href = hm[1];
+    if (/^(\.\/)?manifest\.json(\?.*)?$/i.test(href)) return m;
+    const clean = href.replace(/^\.?\/(?!\/)/, '');
+    const nh = /^manifest\.json(\?.*)?$/i.test(clean) ? './' + clean : './manifest.json';
+    if (nh === href) return m;
+    rep.fixed.push('lien manifest corrigé (' + href + ' → ' + nh + ')');
+    return m.replace(/(\bhref\s*=\s*["'])[^"']*(["'])/i, function(_, a, b) { return a + nh + b; });
+  });
+
+  // ---- splashs iOS
+  const sS = HC_MARK.splashStart, sE = HC_MARK.splashEnd;
+  const foreignSplash = /apple-touch-startup-image/i.test(hcStripBlock(head, sS, sE));
+  const hadSplash = hcCountOf(head, sS) > 0;
+  if (foreignSplash) {
+    if (hadSplash) {
+      head = hcStripBlock(head, sS, sE);
+      rep.fixed.push('liens splash en doublon retirés');
+    }
+  } else {
+    const sb = hcBuildSplashBlock(ctx.splashNames);
+    if (sb) {
+      const rs = hcUpsertBlock(head, sS, sE, sb, function(s, b) { adds.push(b); return s; });
+      head = rs.text;
+      if (rs.state === 'added') rep.added.push('liens splash iOS');
+      else if (rs.state === 'updated') rep.fixed.push('liens splash iOS mis à jour');
+    } else if (hadSplash) {
+      head = hcStripBlock(head, sS, sE);
+    }
+  }
+
+  // ---- insertion avant la dernière balise de fin de body
+  const insBody = function(s, b) {
+    const re = /<\/body\s*>/gi;
+    let mm, last = null;
+    while ((mm = re.exec(s)) !== null) last = mm;
+    if (!last) return s.replace(/\s*$/, '') + '\n' + b + '\n';
+    return s.slice(0, last.index) + b + '\n' + s.slice(last.index);
+  };
+
+  // ---- enregistrement du service worker
+  const rS = HC_MARK.swRegStart, rE = HC_MARK.swRegEnd;
+  const noOurs = function(s) { return hcStripBlock(s, rS, rE); };
+  const foreignReg = /serviceWorker\s*\.\s*register\s*\(/.test(noOurs(head) + '\n' + noOurs(rest));
+  if (foreignReg) {
+    if (hcCountOf(head + rest, rS) > 0) {
+      head = noOurs(head);
+      rest = noOurs(rest);
+      rep.fixed.push('enregistrement du service worker en doublon retiré');
+    }
+    let swFixed = 0;
+    const fixSw = function(s) {
+      return s.replace(/(serviceWorker\s*\.\s*register\s*\(\s*)(["'`])\/(?!\/)([^"'`]*)\2/g, function(_, a, q, p) {
+        swFixed++;
+        return a + q + './' + p + q;
+      });
+    };
+    head = fixSw(head);
+    rest = fixSw(rest);
+    if (swFixed) rep.fixed.push('chemin du service worker rendu relatif');
+    const pm = (head + rest).match(/serviceWorker\s*\.\s*register\s*\(\s*["'`]([^"'`]+)["'`]/);
+    if (pm && !/(^|\/)sw\.js(\?.*)?$/i.test(pm[1])) {
+      rep.warn.push('Le service worker enregistré (' + pm[1] + ') n\'est pas sw.js : vérifie');
+    }
+  } else {
+    const swBlock = rS + '\n' + [
+      '<script>',
+      "if ('serviceWorker' in navigator) {",
+      "  window.addEventListener('load', function () {",
+      "    navigator.serviceWorker.register('./sw.js').catch(function (err) { console.error('SW', err); });",
+      "  });",
+      "}",
+      '<\/script>'
+    ].join('\n') + '\n' + rE;
+    const rw = hcUpsertBlock(rest, rS, rE, swBlock, insBody);
+    rest = rw.text;
+    if (rw.state === 'added') rep.added.push('enregistrement du service worker');
+    else if (rw.state === 'updated') rep.fixed.push('enregistrement du service worker mis à jour');
+  }
+
+  // ---- bouton « Installer l'app »
+  const iS = HC_MARK.installStart, iE = HC_MARK.installEnd;
+  const noInst = function(s) { return hcStripBlock(s, iS, iE); };
+  const foreignInst = /beforeinstallprompt/.test(noInst(head) + '\n' + noInst(rest));
+  const hadInst = hcCountOf(head + rest, iS) > 0;
+  if (foreignInst) {
+    if (hadInst) {
+      head = noInst(head);
+      rest = noInst(rest);
+      rep.fixed.push('bouton d\'installation en doublon retiré');
+    } else {
+      rep.notes.push('Bouton d\'installation déjà présent dans la page : conservé');
+    }
+  } else {
+    const ri = hcUpsertBlock(rest, iS, iE, hcBuildInstallBlock(), insBody);
+    rest = ri.text;
+    if (ri.state === 'added') rep.added.push('bouton « Installer l\'app »');
+    else if (ri.state === 'updated') rep.fixed.push('bouton « Installer l\'app » mis à jour');
+  }
+
+  // ---- assemblage
+  head = head + (adds.length ? '\n' + adds.join('\n') : '') + tailWs;
+  if (noHead) {
+    if (!adds.length) return rest;
+    const headHtml = '<head>' + head + '\n</head>\n';
+    const dm = rest.match(/<html\b[^>]*>/i);
+    if (dm) {
+      const i = dm.index + dm[0].length;
+      return rest.slice(0, i) + '\n' + headHtml + rest.slice(i);
+    }
+    const dt = rest.match(/^\s*<!doctype[^>]*>/i);
+    if (dt) return rest.slice(0, dt[0].length) + '\n' + headHtml + rest.slice(dt[0].length);
+    return headHtml + rest;
+  }
+  return head + rest;
 }
 
 /* ========================================================= CONFIRM PANELS ========================================================= */
@@ -2165,8 +2962,8 @@ function renderRepos(repos, query) {
       '</div>' +
 
       '<div class="confirm-panel info" id="confirm-inject-' + repo.name + '">' +
-        '<div class="confirm-title" style="color:#86efac;">💉 Injecter les balises PWA ?</div>' +
-        '<div class="confirm-desc">Ajoute manifest, viewport, theme-color et l\'enregistrement du service worker dans index.html.</div>' +
+        '<div class="confirm-title" style="color:#86efac;">💉 Injecter / réparer la PWA ?</div>' +
+        '<div class="confirm-desc">Analyse index.html, manifest.json, sw.js et les icônes, corrige l\'installabilité sans doublon et ajoute un bouton « Installer l\'app ».</div>' +
         '<div class="confirm-buttons">' +
           '<button class="confirm-btn yes" data-confirm="inject-yes">INJECTER</button>' +
           '<button class="confirm-btn no" data-confirm="inject-no">ANNULER</button>' +
