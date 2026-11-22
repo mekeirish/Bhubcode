@@ -467,6 +467,39 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   margin-top:16px; text-align:center;
   font-size:7px; color:#475569; letter-spacing:.14em; text-transform:uppercase;
 }
+.opt-section{ margin:18px 2px 8px; font-size:7px; font-weight:800; letter-spacing:.17em; text-transform:uppercase; color:#64748b; }
+.opt-section:first-child{ margin-top:2px; }
+.opt-row{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 14px; margin-bottom:8px; border-radius:13px;
+  background:rgba(255,255,255,.025); border:1px solid rgba(255,255,255,.05);
+  cursor:pointer; -webkit-user-select:none; user-select:none; transition:.15s ease;
+}
+.opt-row:active{ background:rgba(255,255,255,.05); }
+.opt-row .toggle-switch{ margin:0; flex:0 0 44px; }
+.opt-row-text{ min-width:0; flex:1; }
+.opt-row-title{ font-size:10px; font-weight:800; color:#e2e8f0; margin-bottom:3px; }
+.opt-row-desc{ font-size:8.5px; color:#94a3b8; line-height:1.55; }
+.opt-volume{ flex-direction:column; align-items:stretch; gap:10px; cursor:default; }
+.opt-volume-head{ display:flex; align-items:center; justify-content:space-between; }
+.opt-volume-val{ font-size:10px; font-weight:800; color:#86efac; }
+.opt-volume-ctrl{ display:flex; align-items:center; gap:8px; }
+.opt-range{ flex:1; min-width:0; height:28px; accent-color:#22c55e; }
+.opt-btn{
+  flex:0 0 auto; height:34px; padding:0 11px; border-radius:10px;
+  border:1px solid rgba(34,197,94,.3); background:rgba(34,197,94,.1);
+  color:#86efac; font-size:8.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  transition:.15s ease;
+}
+.opt-btn:active{ transform:scale(.95); background:rgba(34,197,94,.2); }
+.opt-btn.opt-btn-err{ border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.08); color:#fca5a5; }
+.opt-reset{
+  width:100%; height:42px; margin-top:6px; border-radius:11px;
+  border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
+  color:#94a3b8; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  transition:.15s ease;
+}
+.opt-reset:active{ transform:scale(.97); background:rgba(255,255,255,.08); }
 
 /* ========================================================= MODALE ÉDITEUR ========================================================= */
 .editor-modal{
@@ -817,6 +850,7 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
     <span id="statusBadgeText">READY</span>
   </div>
   <button class="header-btn" id="connBtn" onclick="toggleConnectionCard()" aria-label="Connexion">🔑</button>
+  <button class="header-btn" id="optionsBtn" onclick="openSheet('options')" aria-label="Options">⚙️</button>
   <button class="header-btn" onclick="openSheet('info')" aria-label="Info">ⓘ</button>
 </div>
     </header>
@@ -921,6 +955,106 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
       </div>
     </div>
     <div class="info-footer">Made by Brahim Laiche · 2026 · Paris</div>
+  </div>
+</div>
+<div class="sheet-overlay" id="optionsOverlay" onclick="closeSheet('options')"></div>
+<div class="sheet" id="optionsSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <div class="sheet-head-left">
+      <div class="sheet-icon">⚙️</div>
+      <div>
+        <div class="sheet-sub">Préférences</div>
+        <div class="sheet-title">Options</div>
+      </div>
+    </div>
+    <button class="sheet-close" onclick="closeSheet('options')">✕</button>
+  </div>
+  <div class="sheet-body">
+
+    <div class="opt-section">Sons</div>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Son de fin d'action</div>
+        <div class="opt-row-desc">Une note douce quand tout est terminé : push fait, déploiement fini, clignotement rouge éteint.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-doneSound" onchange="onOptToggle('doneSound', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Son d'échec</div>
+        <div class="opt-row-desc">Deux notes graves si l'action se termine en erreur, pour la distinguer d'une réussite.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-errSound" onchange="onOptToggle('errSound', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Sons des boutons</div>
+        <div class="opt-row-desc">Le léger bourdonnement à chaque appui sur un bouton ou un fichier.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-clickSound" onchange="onOptToggle('clickSound', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <div class="opt-row opt-volume">
+      <div class="opt-volume-head">
+        <div class="opt-row-title" style="margin-bottom:0;">Volume des sons</div>
+        <span class="opt-volume-val" id="optVolumeVal">40 %</span>
+      </div>
+      <div class="opt-volume-ctrl">
+        <input type="range" class="opt-range" id="opt-volume" min="0" max="100" step="5" value="40" oninput="onOptVolume(this.value, false)" onchange="onOptVolume(this.value, true)">
+        <button type="button" class="opt-btn" onclick="testSound('done')">▶ Fin</button>
+        <button type="button" class="opt-btn opt-btn-err" onclick="testSound('error')">▶ Échec</button>
+      </div>
+    </div>
+
+    <div class="opt-section">Confort</div>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Vibrations</div>
+        <div class="opt-row-desc">Retour haptique léger sur les appuis et à la fin d'une action.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-haptic" onchange="onOptToggle('haptic', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Écran allumé pendant les actions</div>
+        <div class="opt-row-desc">Empêche la mise en veille pendant un clonage ou un déploiement. Relâché dès que tout est fini.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-wakeLock" onchange="onOptToggle('wakeLock', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Replier la console après un succès</div>
+        <div class="opt-row-desc">Masque la console 6 secondes après une action réussie. Les échecs restent affichés.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-autoCollapse" onchange="onOptToggle('autoCollapse', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <div class="opt-section">Données</div>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Charger les dépôts au lancement</div>
+        <div class="opt-row-desc">Récupère la liste automatiquement si un token est enregistré.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-autoLoad" onchange="onOptToggle('autoLoad', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <label class="opt-row">
+      <div class="opt-row-text">
+        <div class="opt-row-title">Compter les lignes de index.html</div>
+        <div class="opt-row-desc">Une requête GitHub par dépôt. Désactive-la pour économiser ton quota API.</div>
+      </div>
+      <span class="toggle-switch"><input type="checkbox" id="opt-lines" onchange="onOptToggle('lines', this.checked)"><span class="toggle-slider"></span></span>
+    </label>
+
+    <button type="button" class="opt-reset" onclick="resetOptions()">Réinitialiser les options</button>
   </div>
 </div>
 
@@ -1072,7 +1206,167 @@ let newFileState = { owner: null, repo: null, branch: null };
 let dupRepoState = { owner: null, repo: null, branch: null };
 
 /* ========================================================= HAPTIC ========================================================= */
-function haptic(ms){ ms = ms || 8; try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
+function haptic(ms){ if(!getOpt('haptic')) return; ms = ms || 8; try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
+/* ========================================================= OPTIONS ========================================================= */
+const OPT_KEY = 'hubcode_options';
+const OPT_DEFAULTS = {
+  doneSound: true,
+  errSound: true,
+  clickSound: true,
+  volume: 40,
+  haptic: true,
+  wakeLock: true,
+  autoCollapse: false,
+  autoLoad: true,
+  lines: true
+};
+let opts = null;
+let repoHadError = {};
+let repoBusyStart = {};
+let lastDangerTs = 0;
+let wakeLockSentinel = null;
+let wakeLockPending = false;
+function getOpt(key) {
+  if (!opts) {
+    opts = Object.assign({}, OPT_DEFAULTS);
+    try {
+      const saved = JSON.parse(store.getItem(OPT_KEY) || '{}');
+      Object.keys(OPT_DEFAULTS).forEach(function(k) {
+        if (saved && typeof saved[k] === typeof OPT_DEFAULTS[k]) opts[k] = saved[k];
+      });
+    } catch (e) {}
+  }
+  return opts[key];
+}
+function setOpt(key, val) {
+  getOpt(key);
+  opts[key] = val;
+  try { store.setItem(OPT_KEY, JSON.stringify(opts)); } catch (e) {}
+  showSaveIndicator();
+}
+function playTones(notes, type) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const vol = Math.max(0, Math.min(100, getOpt('volume'))) / 100;
+    if (vol <= 0) return;
+    const t0 = audioCtx.currentTime + 0.02;
+    notes.forEach(function(n) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const st = t0 + n.t;
+      osc.type = type;
+      osc.frequency.value = n.f;
+      gain.gain.setValueAtTime(0.0001, st);
+      gain.gain.exponentialRampToValueAtTime(0.3 * vol * (n.g || 1), st + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, st + n.d);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(st); osc.stop(st + n.d + 0.02);
+    });
+  } catch (e) {}
+}
+function playDoneSound() {
+  playTones([
+    { f: 659.25, t: 0, d: 0.28 },
+    { f: 987.77, t: 0.12, d: 0.3 },
+    { f: 1318.51, t: 0.24, d: 0.6, g: 0.8 }
+  ], 'sine');
+}
+function playErrorSound() {
+  playTones([
+    { f: 311.13, t: 0, d: 0.26, g: 1.3 },
+    { f: 233.08, t: 0.17, d: 0.5, g: 1.3 }
+  ], 'triangle');
+}
+function anyRepoBusy() {
+  return Object.keys(repoBusyCount).some(function(k) { return repoBusyCount[k] > 0; });
+}
+function wakeLockWanted() {
+  return !!getOpt('wakeLock') && anyRepoBusy() && document.visibilityState === 'visible';
+}
+async function syncWakeLock() {
+  if (!('wakeLock' in navigator) || wakeLockPending) return;
+  wakeLockPending = true;
+  try {
+    if (wakeLockWanted() && !wakeLockSentinel) {
+      const s = await navigator.wakeLock.request('screen');
+      s.addEventListener('release', function() { if (wakeLockSentinel === s) wakeLockSentinel = null; });
+      wakeLockSentinel = s;
+      if (!wakeLockWanted()) { wakeLockSentinel = null; await s.release(); }
+    } else if (!wakeLockWanted() && wakeLockSentinel) {
+      const s2 = wakeLockSentinel;
+      wakeLockSentinel = null;
+      await s2.release();
+    }
+  } catch (e) {
+    wakeLockSentinel = null;
+  } finally {
+    wakeLockPending = false;
+  }
+}
+function onRepoActionsDone(repoName, failed) {
+  if (failed) {
+    if (getOpt('errSound')) playErrorSound();
+    return;
+  }
+  if (getOpt('doneSound')) playDoneSound();
+  haptic(14);
+  if (getOpt('autoCollapse')) {
+    setTimeout(function() {
+      if ((repoBusyCount[repoName] || 0) > 0) return;
+      const t = byId('tracker-' + repoName);
+      if (t) t.classList.remove('show');
+    }, 6000);
+  }
+}
+function syncOptionsUI() {
+  Object.keys(OPT_DEFAULTS).forEach(function(k) {
+    const el = byId('opt-' + k);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!getOpt(k);
+    else el.value = getOpt(k);
+  });
+  const lab = byId('optVolumeVal');
+  if (lab) lab.textContent = getOpt('volume') + ' %';
+}
+function onOptToggle(key, val) {
+  setOpt(key, !!val);
+  haptic(6);
+  if (key === 'wakeLock') syncWakeLock();
+  if (key === 'lines') {
+    if (!val) {
+      document.querySelectorAll('[id^="lines-"]').forEach(function(el) { el.style.display = 'none'; el.textContent = ''; });
+    } else if (allRepositories.length) {
+      loadFilesForVisibleRepos();
+    }
+  }
+  if (val && key === 'doneSound') playDoneSound();
+  if (val && key === 'errSound') playErrorSound();
+  if (val && key === 'clickSound') playHum60Hz();
+}
+function onOptVolume(val, commit) {
+  const v = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
+  const lab = byId('optVolumeVal');
+  if (lab) lab.textContent = v + ' %';
+  if (commit) {
+    setOpt('volume', v);
+    if (v > 0) playDoneSound();
+  }
+}
+function testSound(kind) {
+  haptic(6);
+  if (kind === 'error') playErrorSound();
+  else playDoneSound();
+}
+function resetOptions() {
+  opts = Object.assign({}, OPT_DEFAULTS);
+  try { store.setItem(OPT_KEY, JSON.stringify(opts)); } catch (e) {}
+  syncOptionsUI();
+  syncWakeLock();
+  if (allRepositories.length) loadFilesForVisibleRepos();
+  showNotification('Options réinitialisées', 'success');
+  haptic(10);
+}
 
 /* ========================================================= SAVE INDICATOR ========================================================= */
 let saveIndicatorTimer = null;
@@ -1089,6 +1383,7 @@ function playHum60Hz() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!getOpt('clickSound')) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = 'sine'; osc.frequency.value = 60;
@@ -1103,6 +1398,7 @@ function playHum60Hz() {
 let toastContainer = null;
 function showNotification(msg, type) {
   type = type || 'success';
+  if (type === 'danger') lastDangerTs = Date.now();
   if (!toastContainer) {
     toastContainer = document.createElement('div');
     toastContainer.className = 'toast-container';
@@ -1155,7 +1451,7 @@ function closeSheet(name) {
   byId(name + 'Overlay').classList.remove('open');
   byId(name + 'Sheet').classList.remove('open');
 }
-['info'].forEach(function(name){
+['info', 'options'].forEach(function(name){
   var sheet = byId(name + 'Sheet');
   if (!sheet) return;
   var startY = 0, currentY = 0, dragging = false;
@@ -1419,6 +1715,7 @@ async function loadFilesForVisibleRepos() {
   });
 }
 async function loadIndexLineCount(owner, repo, branch, tok) {
+  if (!getOpt('lines')) return null;
   const key = owner + '/' + repo;
   if (Object.prototype.hasOwnProperty.call(linesCache, key)) return linesCache[key];
   try {
@@ -1556,6 +1853,7 @@ function clearTracker(repoName) {
 }
 function addLog(repoName, message, status) {
   status = status || 'step';
+  if (status === 'error') repoHadError[repoName] = true;
   const t = getTracker(repoName);
   if (!t) return;
   const line = document.createElement('div');
@@ -1576,10 +1874,21 @@ function disableBackBtn(repoName, disabled) {
 }
 let repoBusyCount = {};
 function setRepoBusy(repoName, busy) {
-  const n = (repoBusyCount[repoName] || 0) + (busy ? 1 : -1);
+  const prev = repoBusyCount[repoName] || 0;
+  const n = prev + (busy ? 1 : -1);
   repoBusyCount[repoName] = n > 0 ? n : 0;
+  if (busy && prev === 0) {
+    repoBusyStart[repoName] = Date.now();
+    repoHadError[repoName] = false;
+  }
   const el = byId('repo-' + repoName);
   if (el) el.classList.toggle('repo-busy', repoBusyCount[repoName] > 0);
+  syncWakeLock();
+  if (!busy && prev > 0 && repoBusyCount[repoName] === 0) {
+    const failed = !!repoHadError[repoName] || lastDangerTs >= (repoBusyStart[repoName] || 0);
+    repoHadError[repoName] = false;
+    onRepoActionsDone(repoName, failed);
+  }
 }
 function refreshBusyRepos() {
   Object.keys(repoBusyCount).forEach(name => {
@@ -4432,20 +4741,23 @@ document.addEventListener('keydown', function(e){
     const nf = byId('newFileModal');
     if (nf && nf.classList.contains('visible')) { closeNewFileModal(); return; }
     closeSheet('info');
+    closeSheet('options');
   }
 });
+document.addEventListener('visibilitychange', function() { syncWakeLock(); });
 
 /* ========================================================= INIT ========================================================= */
 (function init(){
   const savedToken = store.getItem(LS_KEYS.TOKEN);
   if (savedToken) byId('githubToken').value = savedToken;
   const savedSearch = store.getItem(LS_KEYS.SEARCH) || '';
+  syncOptionsUI();
   if (savedSearch) {
     byId('repoSearch').value = savedSearch;
     byId('searchClear').classList.add('show');
   }
   updateRepoCount();
-  if (savedToken) {
+  if (savedToken && getOpt('autoLoad')) {
     setTimeout(() => { fetchRepositories(); }, 150);
   }
   if ('serviceWorker' in navigator) {
@@ -4533,6 +4845,13 @@ window.confirmDuplicateRepo = confirmDuplicateRepo;
 window.toggleConnectionCard = toggleConnectionCard;
 window.showConnectionCard = showConnectionCard;
 window.hideConnectionCard = hideConnectionCard;
+window.getOpt = getOpt;
+window.setOpt = setOpt;
+window.onOptToggle = onOptToggle;
+window.onOptVolume = onOptVolume;
+window.testSound = testSound;
+window.resetOptions = resetOptions;
+window.syncOptionsUI = syncOptionsUI;
 </script>
 </body>
 </html>
