@@ -2910,7 +2910,7 @@ function hcBuildInstallBlock() {
 
   if (isStandalone()) return;
   if (isIOS) { show(); }
-  else if (isAndroid) { setTimeout(function () { if (!deferred) show(); }, 3000); }
+  else { setTimeout(function () { if (!deferred) show(); }, isAndroid ? 2500 : 3000); }
 })();
 <\/script>`;
   return HC_MARK.installStart + '\n' + body + '\n' + HC_MARK.installEnd;
