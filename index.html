@@ -236,6 +236,14 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
   letter-spacing:.02em; white-space:nowrap;
   font-variant-numeric:tabular-nums;
 }
+.inject-opts{
+  flex:1; min-height:0; max-height:60vh;
+  overflow-y:auto; padding:2px;
+  -webkit-overflow-scrolling:touch;
+}
+.inject-opts .opt-row:last-child{ margin-bottom:0; }
+.inject-opts::-webkit-scrollbar{ width:3px; }
+.inject-opts::-webkit-scrollbar-thumb{ background:rgba(34,197,94,.3); border-radius:2px; }
 
 /* File buttons row (dynamic, wraps) */
 .repo-files-row{
@@ -1188,6 +1196,22 @@ button{ -webkit-user-select:none; user-select:none; cursor:pointer; }
         <div class="editor-actions">
             <button class="editor-btn editor-save" id="dupFileSaveBtn" onclick="confirmDuplicateRepo()">📋 Cloner</button>
             <button class="editor-btn editor-close" onclick="closeDupModal()">✕ Fermer</button>
+        </div>
+    </div>
+</div>
+<div id="injectModal" class="editor-modal">
+    <div class="editor-panel" style="height:auto; max-height:90vh;">
+        <div class="editor-header">
+            <span class="editor-title" id="injectModalTitle">Injection PWA</span>
+            <span class="editor-status" id="injectModalCount"></span>
+        </div>
+        <div class="inject-opts" id="injectOptsList"></div>
+        <div class="editor-actions">
+            <button class="editor-btn editor-close" id="injectSelectAllBtn" onclick="toggleAllInjectOpts()">☑ Tout sélectionner</button>
+        </div>
+        <div class="editor-actions">
+            <button class="editor-btn editor-save" id="injectValidateBtn" onclick="confirmInjectModal()">💉 Valider l'injection</button>
+            <button class="editor-btn editor-close" onclick="closeInjectModal()">✕ Fermer</button>
         </div>
     </div>
 </div>
@@ -2313,7 +2337,7 @@ async function pushFilesInOneCommit(owner, repo, branch, tok, files, message, lo
   return commit.sha;
 }
 
-async function injectPwaToRepo(owner, repo, branch) {
+async function injectPwaToRepo(owner, repo, branch, injectOpts) {
   const tok = store.getItem(LS_KEYS.TOKEN);
   if (!tok) { showNotification('Token manquant', 'danger'); return; }
   setRepoBusy(repo, true);
@@ -2322,6 +2346,13 @@ async function injectPwaToRepo(owner, repo, branch) {
   addLog(repo, 'Début injection PWA sur ' + owner + '/' + repo, 'step');
 
   try {
+    const o = {};
+    INJECT_OPTIONS.forEach(function(x) { o[x.key] = injectOpts ? !!injectOpts[x.key] : true; });
+    const chosen = INJECT_OPTIONS.filter(function(x) { return o[x.key]; }).map(function(x) { return x.label; });
+    if (chosen.length === 0) throw new Error('Aucun élément sélectionné');
+    addLog(repo, 'Éléments choisis : ' + chosen.join(', '), 'step');
+    const needHtml = o.manifest || o.head || o.splash || o.sw || o.install || o.signature;
+
     addLog(repo, 'Analyse du dépôt...', 'loading');
     const listResp = await ghFetch(GH_API + '/repos/' + owner + '/' + repo + '/contents?ref=' + encodeURIComponent(branch), {
       headers: { 'Authorization': 'token ' + tok }
@@ -2344,11 +2375,11 @@ async function injectPwaToRepo(owner, repo, branch) {
 
     // ---- index.html
     const htmlFile = has('index.html') ? await hcReadFile(owner, repo, branch, tok, 'index.html') : null;
-    let originalHtml;
+    let originalHtml = '';
     if (htmlFile) {
       originalHtml = b64ToUtf8(htmlFile.b64);
       addLog(repo, 'index.html lu', 'success');
-    } else {
+    } else if (needHtml) {
       addLog(repo, 'index.html introuvable, création minimale', 'warning');
       originalHtml = '<!DOCTYPE html>\n<html lang="fr">\n<head>\n<meta charset="UTF-8">\n<title>' + escapeHtml(repo) + '</title>\n</head>\n<body>\n<h1>' + escapeHtml(repo) + '</h1>\n</body>\n</html>\n';
       rep.added.push('index.html minimal');
@@ -2374,22 +2405,24 @@ async function injectPwaToRepo(owner, repo, branch) {
     let size512 = b64_512 ? hcPngSize(b64_512) : null;
     let size192 = null;
 
-    if (!b64_512) {
-      b64_512 = hcRenderLetterIcon(letter, 512, baseTheme);
-      size512 = { w: 512, h: 512 };
-      filePush('icon.png', b64_512);
-      rep.added.push('icon.png provisoire (lettre ' + letter + ')');
-      rep.notes.push('icon.png absent : icône provisoire créée, utilise ICON pour mettre la tienne');
-    } else if (!size512 || size512.w < 512 || size512.w !== size512.h) {
-      try {
-        const imgFix = await loadImageFromSrc('data:image/png;base64,' + b64_512);
-        b64_512 = renderIconPng(imgFix, 512);
+    if (o.icons) {
+      if (!b64_512) {
+        b64_512 = hcRenderLetterIcon(letter, 512, baseTheme);
         size512 = { w: 512, h: 512 };
         filePush('icon.png', b64_512);
-        rep.fixed.push('icon.png remis en PNG carré 512x512');
-      } catch (e) {
-        size512 = null;
-        rep.warn.push('icon.png illisible : utilise le bouton ICON');
+        rep.added.push('icon.png provisoire (lettre ' + letter + ')');
+        rep.notes.push('icon.png absent : icône provisoire créée, utilise ICON pour mettre la tienne');
+      } else if (!size512 || size512.w < 512 || size512.w !== size512.h) {
+        try {
+          const imgFix = await loadImageFromSrc('data:image/png;base64,' + b64_512);
+          b64_512 = renderIconPng(imgFix, 512);
+          size512 = { w: 512, h: 512 };
+          filePush('icon.png', b64_512);
+          rep.fixed.push('icon.png remis en PNG carré 512x512');
+        } catch (e) {
+          size512 = null;
+          rep.warn.push('icon.png illisible : utilise le bouton ICON');
+        }
       }
     }
 
@@ -2398,7 +2431,7 @@ async function injectPwaToRepo(owner, repo, branch) {
       const f192 = await hcReadFile(owner, repo, branch, tok, 'icon-192.png');
       if (f192) size192 = hcPngSize(f192.b64);
     }
-    if (b64_512 && size512 && (!had192 || !size192 || size192.w < 192 || size192.w !== size192.h)) {
+    if (o.icons && b64_512 && size512 && (!had192 || !size192 || size192.w < 192 || size192.w !== size192.h)) {
       try {
         const img192 = await loadImageFromSrc('data:image/png;base64,' + b64_512);
         filePush('icon-192.png', renderIconPng(img192, 192));
@@ -2412,38 +2445,47 @@ async function injectPwaToRepo(owner, repo, branch) {
     const allNames = names.concat(pushedNames);
 
     // ---- manifest.json (correction)
-    const mRes = hcFixManifest(mText, {
-      name: appName, shortName: shortName, bg: baseBg, theme: baseTheme,
-      files: allNames,
-      has192: allNames.indexOf('icon-192.png') !== -1,
-      has512: allNames.indexOf('icon.png') !== -1,
-      size192: size192, size512: size512, warns: rep.warn
-    });
-    if (mRes.changes.length > 0) {
-      filePush('manifest.json', utf8ToB64(mRes.text));
-      if (mText && mText.trim()) rep.fixed.push('manifest.json : ' + mRes.changes.join(', '));
-      else rep.added.push('manifest.json');
+    let themeForHtml = baseTheme;
+    if (o.manifest) {
+      const mRes = hcFixManifest(mText, {
+        name: appName, shortName: shortName, bg: baseBg, theme: baseTheme,
+        files: allNames,
+        has192: allNames.indexOf('icon-192.png') !== -1,
+        has512: allNames.indexOf('icon.png') !== -1,
+        size192: size192, size512: size512, warns: rep.warn
+      });
+      if (mRes.changes.length > 0) {
+        filePush('manifest.json', utf8ToB64(mRes.text));
+        if (mText && mText.trim()) rep.fixed.push('manifest.json : ' + mRes.changes.join(', '));
+        else rep.added.push('manifest.json');
+      }
+      themeForHtml = mRes.manifest.theme_color;
     }
 
     // ---- sw.js
-    const sFile = has('sw.js') ? await hcReadFile(owner, repo, branch, tok, 'sw.js') : null;
-    const sRes = hcPatchSw(sFile ? b64ToUtf8(sFile.b64) : null, repo);
-    if (sRes.state === 'created') {
-      filePush('sw.js', utf8ToB64(sRes.text));
-      rep.added.push('sw.js');
-    } else if (sRes.state === 'patched') {
-      filePush('sw.js', utf8ToB64(sRes.text));
-      rep.fixed.push('sw.js : gestionnaire fetch ajouté (requis pour l\'installation)');
+    if (o.sw) {
+      const sFile = has('sw.js') ? await hcReadFile(owner, repo, branch, tok, 'sw.js') : null;
+      const sRes = hcPatchSw(sFile ? b64ToUtf8(sFile.b64) : null, repo);
+      if (sRes.state === 'created') {
+        filePush('sw.js', utf8ToB64(sRes.text));
+        rep.added.push('sw.js');
+      } else if (sRes.state === 'patched') {
+        filePush('sw.js', utf8ToB64(sRes.text));
+        rep.fixed.push('sw.js : gestionnaire fetch ajouté (requis pour l\'installation)');
+      }
     }
 
-    // ---- index.html (balises, splashs, SW, bouton installer)
-    const splashNames = names.filter(function(n) { return /^splash-\d+x\d+\.png$/.test(n); });
-    const newHtml = hcPatchHtml(originalHtml, {
-      rep: rep,
-      theme: mRes.manifest.theme_color,
-      splashNames: splashNames
-    });
-    if (!htmlFile || newHtml !== originalHtml) filePush('index.html', utf8ToB64(newHtml));
+    // ---- index.html (selon les éléments choisis)
+    if (needHtml) {
+      const splashNames = names.filter(function(n) { return /^splash-\d+x\d+\.png$/.test(n); });
+      const newHtml = hcPatchHtml(originalHtml, {
+        rep: rep,
+        theme: themeForHtml,
+        splashNames: splashNames,
+        opts: o
+      });
+      if (!htmlFile || newHtml !== originalHtml) filePush('index.html', utf8ToB64(newHtml));
+    }
 
     rep.added.forEach(function(x) { addLog(repo, '+ ' + x, 'success'); });
     rep.fixed.forEach(function(x) { addLog(repo, '~ ' + x, 'success'); });
@@ -2451,8 +2493,8 @@ async function injectPwaToRepo(owner, repo, branch) {
     rep.warn.forEach(function(x) { addLog(repo, x, 'warning'); });
 
     if (toPush.length === 0) {
-      addLog(repo, '✅ Rien à corriger : installabilité déjà conforme', 'success');
-      showNotification('PWA déjà conforme', 'success');
+      addLog(repo, '✅ Rien à modifier pour les éléments choisis', 'success');
+      showNotification('Déjà conforme pour les éléments choisis', 'success');
       return;
     }
 
@@ -2492,7 +2534,9 @@ const HC_MARK = {
   swRegStart: '<' + '!-- HUBCODE-SWREG:START -->',
   swRegEnd: '<' + '!-- HUBCODE-SWREG:END -->',
   splashStart: '<' + '!-- HUBCODE-SPLASH:START -->',
-  splashEnd: '<' + '!-- HUBCODE-SPLASH:END -->'
+  splashEnd: '<' + '!-- HUBCODE-SPLASH:END -->',
+  signStart: '<' + '!-- HUBCODE-SIGN:START -->',
+  signEnd: '<' + '!-- HUBCODE-SIGN:END -->'
 };
 async function hcReadFile(owner, repo, branch, tok, path) {
   const base = GH_API + '/repos/' + owner + '/' + repo;
@@ -2871,8 +2915,13 @@ function hcBuildInstallBlock() {
 <\/script>`;
   return HC_MARK.installStart + '\n' + body + '\n' + HC_MARK.installEnd;
 }
+function hcBuildSignBlock() {
+  const body = '<div id="hc-sign" style="position:fixed;left:calc(10px + env(safe-area-inset-left,0px));bottom:calc(6px + env(safe-area-inset-bottom,0px));z-index:2147482999;pointer-events:none;font:600 9px/1.2 system-ui,-apple-system,\'Segoe UI\',Roboto,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:currentColor;opacity:.45;">Made by Laiche Brahim · 2026 · Paris</div>';
+  return HC_MARK.signStart + '\n' + body + '\n' + HC_MARK.signEnd;
+}
 function hcPatchHtml(html, ctx) {
   const rep = ctx.rep;
+  const o = ctx.opts || { manifest: true, head: true, splash: true, sw: true, install: true, signature: false };
   const he = html.search(/<\/head\s*>/i);
   const noHead = he === -1;
   let head = noHead ? '' : html.slice(0, he);
@@ -2887,22 +2936,23 @@ function hcPatchHtml(html, ctx) {
 
   // ---- balises <head> : ajout si absent, suppression des doublons
   const specs = [
-    { label: 'lien manifest', re: /<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/gi, unique: true,
+    { group: 'manifest', label: 'lien manifest', re: /<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/gi, unique: true,
       tag: '<link rel="manifest" href="./manifest.json">' },
-    { label: 'meta viewport', re: /<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*>/gi, unique: true,
+    { group: 'head', label: 'meta viewport', re: /<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*>/gi, unique: true,
       tag: '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' },
-    { label: 'meta theme-color', re: /<meta\b[^>]*\bname\s*=\s*["']theme-color["'][^>]*>/gi, unique: true, exempt: /\bmedia\s*=/i,
+    { group: 'head', label: 'meta theme-color', re: /<meta\b[^>]*\bname\s*=\s*["']theme-color["'][^>]*>/gi, unique: true, exempt: /\bmedia\s*=/i,
       tag: '<meta name="theme-color" content="' + theme + '">' },
-    { label: 'meta apple-mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-capable["'][^>]*>/gi, unique: true,
+    { group: 'head', label: 'meta apple-mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-capable["'][^>]*>/gi, unique: true,
       tag: '<meta name="apple-mobile-web-app-capable" content="yes">' },
-    { label: 'meta mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']mobile-web-app-capable["'][^>]*>/gi, unique: true,
+    { group: 'head', label: 'meta mobile-web-app-capable', re: /<meta\b[^>]*\bname\s*=\s*["']mobile-web-app-capable["'][^>]*>/gi, unique: true,
       tag: '<meta name="mobile-web-app-capable" content="yes">' },
-    { label: 'meta apple status-bar-style', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-status-bar-style["'][^>]*>/gi, unique: true,
+    { group: 'head', label: 'meta apple status-bar-style', re: /<meta\b[^>]*\bname\s*=\s*["']apple-mobile-web-app-status-bar-style["'][^>]*>/gi, unique: true,
       tag: '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' },
-    { label: 'apple-touch-icon', re: /<link\b[^>]*\brel\s*=\s*["']apple-touch-icon(?:-precomposed)?["'][^>]*>/gi, unique: false,
+    { group: 'head', label: 'apple-touch-icon', re: /<link\b[^>]*\brel\s*=\s*["']apple-touch-icon(?:-precomposed)?["'][^>]*>/gi, unique: false,
       tag: '<link rel="apple-touch-icon" href="./icon.png">' }
   ];
   specs.forEach(function(sp) {
+    if (!o[sp.group]) return;
     const seen = {};
     let count = 0, removed = 0;
     head = head.replace(sp.re, function(m) {
@@ -2919,36 +2969,42 @@ function hcPatchHtml(html, ctx) {
   });
 
   // ---- href du manifest (chemin absolu = cassé sur GitHub Pages)
-  head = head.replace(/<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/i, function(m) {
-    const hm = m.match(/\bhref\s*=\s*["']([^"']*)["']/i);
-    if (!hm) return m;
-    const href = hm[1];
-    if (/^(\.\/)?manifest\.json(\?.*)?$/i.test(href)) return m;
-    const clean = href.replace(/^\.?\/(?!\/)/, '');
-    const nh = /^manifest\.json(\?.*)?$/i.test(clean) ? './' + clean : './manifest.json';
-    if (nh === href) return m;
-    rep.fixed.push('lien manifest corrigé (' + href + ' → ' + nh + ')');
-    return m.replace(/(\bhref\s*=\s*["'])[^"']*(["'])/i, function(_, a, b) { return a + nh + b; });
-  });
+  if (o.manifest) {
+    head = head.replace(/<link\b[^>]*\brel\s*=\s*["']?manifest["']?[^>]*>/i, function(m) {
+      const hm = m.match(/\bhref\s*=\s*["']([^"']*)["']/i);
+      if (!hm) return m;
+      const href = hm[1];
+      if (/^(\.\/)?manifest\.json(\?.*)?$/i.test(href)) return m;
+      const clean = href.replace(/^\.?\/(?!\/)/, '');
+      const nh = /^manifest\.json(\?.*)?$/i.test(clean) ? './' + clean : './manifest.json';
+      if (nh === href) return m;
+      rep.fixed.push('lien manifest corrigé (' + href + ' → ' + nh + ')');
+      return m.replace(/(\bhref\s*=\s*["'])[^"']*(["'])/i, function(_, a, b) { return a + nh + b; });
+    });
+  }
 
   // ---- splashs iOS
-  const sS = HC_MARK.splashStart, sE = HC_MARK.splashEnd;
-  const foreignSplash = /apple-touch-startup-image/i.test(hcStripBlock(head, sS, sE));
-  const hadSplash = hcCountOf(head, sS) > 0;
-  if (foreignSplash) {
-    if (hadSplash) {
-      head = hcStripBlock(head, sS, sE);
-      rep.fixed.push('liens splash en doublon retirés');
-    }
-  } else {
-    const sb = hcBuildSplashBlock(ctx.splashNames);
-    if (sb) {
-      const rs = hcUpsertBlock(head, sS, sE, sb, function(s, b) { adds.push(b); return s; });
-      head = rs.text;
-      if (rs.state === 'added') rep.added.push('liens splash iOS');
-      else if (rs.state === 'updated') rep.fixed.push('liens splash iOS mis à jour');
-    } else if (hadSplash) {
-      head = hcStripBlock(head, sS, sE);
+  if (o.splash) {
+    const sS = HC_MARK.splashStart, sE = HC_MARK.splashEnd;
+    const foreignSplash = /apple-touch-startup-image/i.test(hcStripBlock(head, sS, sE));
+    const hadSplash = hcCountOf(head, sS) > 0;
+    if (foreignSplash) {
+      if (hadSplash) {
+        head = hcStripBlock(head, sS, sE);
+        rep.fixed.push('liens splash en doublon retirés');
+      }
+    } else {
+      const sb = hcBuildSplashBlock(ctx.splashNames);
+      if (sb) {
+        const rs = hcUpsertBlock(head, sS, sE, sb, function(s, b) { adds.push(b); return s; });
+        head = rs.text;
+        if (rs.state === 'added') rep.added.push('liens splash iOS');
+        else if (rs.state === 'updated') rep.fixed.push('liens splash iOS mis à jour');
+      } else if (hadSplash) {
+        head = hcStripBlock(head, sS, sE);
+      } else {
+        rep.notes.push('Aucun splash-*.png dans le dépôt : utilise ICON pour les générer');
+      }
     }
   }
 
@@ -2962,63 +3018,82 @@ function hcPatchHtml(html, ctx) {
   };
 
   // ---- enregistrement du service worker
-  const rS = HC_MARK.swRegStart, rE = HC_MARK.swRegEnd;
-  const noOurs = function(s) { return hcStripBlock(s, rS, rE); };
-  const foreignReg = /serviceWorker\s*\.\s*register\s*\(/.test(noOurs(head) + '\n' + noOurs(rest));
-  if (foreignReg) {
-    if (hcCountOf(head + rest, rS) > 0) {
-      head = noOurs(head);
-      rest = noOurs(rest);
-      rep.fixed.push('enregistrement du service worker en doublon retiré');
+  if (o.sw) {
+    const rS = HC_MARK.swRegStart, rE = HC_MARK.swRegEnd;
+    const noOurs = function(s) { return hcStripBlock(s, rS, rE); };
+    const foreignReg = /serviceWorker\s*\.\s*register\s*\(/.test(noOurs(head) + '\n' + noOurs(rest));
+    if (foreignReg) {
+      if (hcCountOf(head + rest, rS) > 0) {
+        head = noOurs(head);
+        rest = noOurs(rest);
+        rep.fixed.push('enregistrement du service worker en doublon retiré');
+      }
+      let swFixed = 0;
+      const fixSw = function(s) {
+        return s.replace(/(serviceWorker\s*\.\s*register\s*\(\s*)(["'`])\/(?!\/)([^"'`]*)\2/g, function(_, a, q, p) {
+          swFixed++;
+          return a + q + './' + p + q;
+        });
+      };
+      head = fixSw(head);
+      rest = fixSw(rest);
+      if (swFixed) rep.fixed.push('chemin du service worker rendu relatif');
+      const pm = (head + rest).match(/serviceWorker\s*\.\s*register\s*\(\s*["'`]([^"'`]+)["'`]/);
+      if (pm && !/(^|\/)sw\.js(\?.*)?$/i.test(pm[1])) {
+        rep.warn.push('Le service worker enregistré (' + pm[1] + ') n\'est pas sw.js : vérifie');
+      }
+    } else {
+      const swBlock = rS + '\n' + [
+        '<script>',
+        "if ('serviceWorker' in navigator) {",
+        "  window.addEventListener('load', function () {",
+        "    navigator.serviceWorker.register('./sw.js').catch(function (err) { console.error('SW', err); });",
+        "  });",
+        "}",
+        '<\/script>'
+      ].join('\n') + '\n' + rE;
+      const rw = hcUpsertBlock(rest, rS, rE, swBlock, insBody);
+      rest = rw.text;
+      if (rw.state === 'added') rep.added.push('enregistrement du service worker');
+      else if (rw.state === 'updated') rep.fixed.push('enregistrement du service worker mis à jour');
     }
-    let swFixed = 0;
-    const fixSw = function(s) {
-      return s.replace(/(serviceWorker\s*\.\s*register\s*\(\s*)(["'`])\/(?!\/)([^"'`]*)\2/g, function(_, a, q, p) {
-        swFixed++;
-        return a + q + './' + p + q;
-      });
-    };
-    head = fixSw(head);
-    rest = fixSw(rest);
-    if (swFixed) rep.fixed.push('chemin du service worker rendu relatif');
-    const pm = (head + rest).match(/serviceWorker\s*\.\s*register\s*\(\s*["'`]([^"'`]+)["'`]/);
-    if (pm && !/(^|\/)sw\.js(\?.*)?$/i.test(pm[1])) {
-      rep.warn.push('Le service worker enregistré (' + pm[1] + ') n\'est pas sw.js : vérifie');
-    }
-  } else {
-    const swBlock = rS + '\n' + [
-      '<script>',
-      "if ('serviceWorker' in navigator) {",
-      "  window.addEventListener('load', function () {",
-      "    navigator.serviceWorker.register('./sw.js').catch(function (err) { console.error('SW', err); });",
-      "  });",
-      "}",
-      '<\/script>'
-    ].join('\n') + '\n' + rE;
-    const rw = hcUpsertBlock(rest, rS, rE, swBlock, insBody);
-    rest = rw.text;
-    if (rw.state === 'added') rep.added.push('enregistrement du service worker');
-    else if (rw.state === 'updated') rep.fixed.push('enregistrement du service worker mis à jour');
   }
 
   // ---- bouton « Installer l'app »
-  const iS = HC_MARK.installStart, iE = HC_MARK.installEnd;
-  const noInst = function(s) { return hcStripBlock(s, iS, iE); };
-  const foreignInst = /beforeinstallprompt/.test(noInst(head) + '\n' + noInst(rest));
-  const hadInst = hcCountOf(head + rest, iS) > 0;
-  if (foreignInst) {
-    if (hadInst) {
-      head = noInst(head);
-      rest = noInst(rest);
-      rep.fixed.push('bouton d\'installation en doublon retiré');
+  if (o.install) {
+    const iS = HC_MARK.installStart, iE = HC_MARK.installEnd;
+    const noInst = function(s) { return hcStripBlock(s, iS, iE); };
+    const foreignInst = /beforeinstallprompt/.test(noInst(head) + '\n' + noInst(rest));
+    const hadInst = hcCountOf(head + rest, iS) > 0;
+    if (foreignInst) {
+      if (hadInst) {
+        head = noInst(head);
+        rest = noInst(rest);
+        rep.fixed.push('bouton d\'installation en doublon retiré');
+      } else {
+        rep.notes.push('Bouton d\'installation déjà présent dans la page : conservé');
+      }
     } else {
-      rep.notes.push('Bouton d\'installation déjà présent dans la page : conservé');
+      const ri = hcUpsertBlock(rest, iS, iE, hcBuildInstallBlock(), insBody);
+      rest = ri.text;
+      if (ri.state === 'added') rep.added.push('bouton « Installer l\'app »');
+      else if (ri.state === 'updated') rep.fixed.push('bouton « Installer l\'app » mis à jour');
     }
-  } else {
-    const ri = hcUpsertBlock(rest, iS, iE, hcBuildInstallBlock(), insBody);
-    rest = ri.text;
-    if (ri.state === 'added') rep.added.push('bouton « Installer l\'app »');
-    else if (ri.state === 'updated') rep.fixed.push('bouton « Installer l\'app » mis à jour');
+  }
+
+  // ---- signature
+  if (o.signature) {
+    const gS = HC_MARK.signStart, gE = HC_MARK.signEnd;
+    const noSign = function(s) { return hcStripBlock(s, gS, gE); };
+    const foreignSign = /Made by Laiche Brahim/i.test(noSign(head) + '\n' + noSign(rest));
+    if (foreignSign) {
+      rep.notes.push('Signature déjà présente dans la page : conservée');
+    } else {
+      const rg = hcUpsertBlock(rest, gS, gE, hcBuildSignBlock(), insBody);
+      rest = rg.text;
+      if (rg.state === 'added') rep.added.push('signature « Made by Laiche Brahim · 2026 · Paris »');
+      else if (rg.state === 'updated') rep.fixed.push('signature mise à jour');
+    }
   }
 
   // ---- assemblage
@@ -3076,6 +3151,106 @@ async function confirmedRollback(owner, repo, defaultBranch) {
 async function confirmedInject(owner, repo, branch) {
   hideInjectConfirmPanel(repo);
   await injectPwaToRepo(owner, repo, branch);
+}
+const INJECT_OPTIONS = [
+  { key: 'manifest', icon: '📄', label: 'Manifest', desc: 'Crée ou répare manifest.json et le lien <link rel="manifest"> dans la page.' },
+  { key: 'sw', icon: '⚙️', label: 'Service worker', desc: 'Crée ou complète sw.js et ajoute son enregistrement dans la page.' },
+  { key: 'icons', icon: '🖼', label: 'Icônes', desc: 'icon.png 512×512 (provisoire si absente) et icon-192.png.' },
+  { key: 'head', icon: '📱', label: 'Balises mobiles', desc: 'viewport, theme-color, balises Apple et apple-touch-icon, sans doublon.' },
+  { key: 'splash', icon: '🌅', label: 'Splashs iOS', desc: 'Liens vers les splash-*.png déjà présents (générés par ICON).' },
+  { key: 'install', icon: '⬇️', label: 'Bouton « Installer l\'app »', desc: 'Bouton flottant avec aide d\'installation iOS / Android.' },
+  { key: 'signature', icon: '✍️', label: 'Signature', desc: 'Made by Laiche Brahim · 2026 · Paris, discrète en bas à gauche.' }
+];
+const INJECT_OPTS_KEY = 'hubcode_inject_opts';
+let injectModalState = { owner: null, repo: null, branch: null };
+function loadInjectOpts() {
+  const sel = {};
+  INJECT_OPTIONS.forEach(function(x) { sel[x.key] = true; });
+  try {
+    const saved = JSON.parse(store.getItem(INJECT_OPTS_KEY) || '{}');
+    INJECT_OPTIONS.forEach(function(x) {
+      if (saved && typeof saved[x.key] === 'boolean') sel[x.key] = saved[x.key];
+    });
+  } catch (e) {}
+  return sel;
+}
+function saveInjectOpts(sel) {
+  try { store.setItem(INJECT_OPTS_KEY, JSON.stringify(sel)); } catch (e) {}
+}
+function getInjectSelection() {
+  const sel = {};
+  INJECT_OPTIONS.forEach(function(x) {
+    const el = byId('inj-' + x.key);
+    sel[x.key] = !!(el && el.checked);
+  });
+  return sel;
+}
+function renderInjectOpts(sel) {
+  const list = byId('injectOptsList');
+  if (!list) return;
+  list.innerHTML = INJECT_OPTIONS.map(function(x) {
+    return '<label class="opt-row">' +
+        '<div class="opt-row-text">' +
+          '<div class="opt-row-title">' + x.icon + ' ' + escapeHtml(x.label) + '</div>' +
+          '<div class="opt-row-desc">' + escapeHtml(x.desc) + '</div>' +
+        '</div>' +
+        '<span class="toggle-switch">' +
+          '<input type="checkbox" id="inj-' + x.key + '"' + (sel[x.key] ? ' checked' : '') + ' onchange="updateInjectModalUI()">' +
+          '<span class="toggle-slider"></span>' +
+        '</span>' +
+      '</label>';
+  }).join('');
+  updateInjectModalUI();
+}
+function updateInjectModalUI() {
+  const sel = getInjectSelection();
+  const total = INJECT_OPTIONS.length;
+  const n = INJECT_OPTIONS.filter(function(x) { return sel[x.key]; }).length;
+  const countEl = byId('injectModalCount');
+  if (countEl) {
+    countEl.textContent = n + '/' + total + ' sélectionné' + (n > 1 ? 's' : '');
+    countEl.style.color = n === 0 ? '#f87171' : '#86efac';
+  }
+  const allBtn = byId('injectSelectAllBtn');
+  if (allBtn) allBtn.textContent = n === total ? '☐ Tout désélectionner' : '☑ Tout sélectionner';
+  const valBtn = byId('injectValidateBtn');
+  if (valBtn) valBtn.disabled = n === 0;
+}
+function toggleAllInjectOpts() {
+  const sel = getInjectSelection();
+  const allOn = INJECT_OPTIONS.every(function(x) { return sel[x.key]; });
+  INJECT_OPTIONS.forEach(function(x) {
+    const el = byId('inj-' + x.key);
+    if (el) el.checked = !allOn;
+  });
+  updateInjectModalUI();
+  haptic(6);
+}
+function openInjectModal(owner, repo, branch) {
+  const tok = store.getItem(LS_KEYS.TOKEN);
+  if (!tok) { showNotification('Token manquant', 'danger'); return; }
+  injectModalState = { owner: owner, repo: repo, branch: branch };
+  byId('injectModalTitle').textContent = repo + ' — Injection PWA';
+  renderInjectOpts(loadInjectOpts());
+  byId('injectModal').classList.add('visible');
+  haptic(6);
+}
+function closeInjectModal() {
+  byId('injectModal').classList.remove('visible');
+  injectModalState = { owner: null, repo: null, branch: null };
+}
+function confirmInjectModal() {
+  const s = injectModalState;
+  if (!s.owner) return;
+  const sel = getInjectSelection();
+  if (!INJECT_OPTIONS.some(function(x) { return sel[x.key]; })) {
+    showNotification('Sélectionne au moins un élément', 'warning');
+    return;
+  }
+  saveInjectOpts(sel);
+  closeInjectModal();
+  haptic(10);
+  injectPwaToRepo(s.owner, s.repo, s.branch, sel);
 }
 
 /* ========================================================= ROLLBACK ========================================================= */
@@ -3417,7 +3592,7 @@ function renderRepos(repos, query) {
         const branch = repo.default_branch;
 
         switch (action) {
-          case 'inject': showInjectConfirmPanel(name); break;
+          case 'inject': openInjectModal(owner, name, branch); break;
           case 'up': toggleUpMode(btn, name); break;
           case 'icon': uploadIcon(owner, name, branch); break;
           case 'new': openNewFileModal(owner, name, branch); break;
@@ -4852,6 +5027,8 @@ ta.addEventListener('input', () => { autoGrow(ta); rebuildHighlight(); updateEdi
 /* ========================================================= KEYBOARD GLOBAL ========================================================= */
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') {
+    const im = byId('injectModal');
+    if (im && im.classList.contains('visible')) { closeInjectModal(); return; }
     const dm = byId('dupFileModal');
     if (dm && dm.classList.contains('visible')) { closeDupModal(); return; }
     const m = byId('editorModal');
