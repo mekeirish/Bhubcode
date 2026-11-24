@@ -2347,10 +2347,28 @@ async function injectPwaToRepo(owner, repo, branch, injectOpts) {
 
   try {
     const o = {};
-    INJECT_OPTIONS.forEach(function(x) { o[x.key] = injectOpts ? !!injectOpts[x.key] : true; });
+    INJECT_OPTIONS.forEach(function(x) { o[x.key] = injectOpts ? !!injectOpts[x.key] : x.key !== 'redirect'; });
     const chosen = INJECT_OPTIONS.filter(function(x) { return o[x.key]; }).map(function(x) { return x.label; });
     if (chosen.length === 0) throw new Error('Aucun élément sélectionné');
     addLog(repo, 'Éléments choisis : ' + chosen.join(', '), 'step');
+
+    // ---- redirection (remplace index.html et sw.js, ignore les autres options)
+    if (o.redirect) {
+      const target = hcGetRedirectTarget(owner, repo);
+      if (!window.confirm('Remplacer index.html et sw.js de ' + repo + ' par une redirection vers :\n' + target + ' ?')) {
+        throw new Error('Redirection annulée');
+      }
+      addLog(repo, 'Redirection vers ' + target + ' (les autres options sont ignorées)', 'step');
+      const redirectFiles = [
+        { path: 'index.html', b64: utf8ToB64(hcBuildRedirectHtml(target)) },
+        { path: 'sw.js', b64: utf8ToB64(hcBuildRedirectSw(target)) }
+      ];
+      const redirectSha = await pushFilesInOneCommit(owner, repo, branch, tok, redirectFiles, 'Hubcode: redirection vers ' + target, repo);
+      addLog(repo, '✅ Redirection en place (1 commit) : index.html, sw.js', 'success');
+      showNotification('Redirection en place', 'success');
+      try { watchPagesDeploy(owner, repo, new Response(JSON.stringify({ commit: { sha: redirectSha } }))); } catch (e) {}
+      return;
+    }
     const needHtml = o.manifest || o.head || o.splash || o.sw || o.install || o.signature;
 
     addLog(repo, 'Analyse du dépôt...', 'loading');
@@ -2496,7 +2514,7 @@ async function injectPwaToRepo(owner, repo, branch, injectOpts) {
         rep.added.push('sw.js');
       } else if (sRes.state === 'patched') {
         filePush('sw.js', utf8ToB64(sRes.text));
-        rep.fixed.push('sw.js : gestionnaire fetch ajouté (requis pour l\'installation)');
+        rep.fixed.push('sw.js mis à jour (réseau d\'abord, notifications push)');
       }
     }
 
@@ -2911,6 +2929,60 @@ function hcPatchSw(text, repo) {
   }
   return changed ? { text: out, state: 'patched' } : { text: out, state: 'ok' };
 }
+function hcBuildRedirectHtml(target) {
+  const t = escapeHtml(target);
+  return [
+    '<!DOCTYPE html>',
+    '<html lang="fr">',
+    '<head>',
+    '<meta charset="UTF-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta http-equiv="refresh" content="1; url=' + t + '">',
+    '<link rel="canonical" href="' + t + '">',
+    '<title>Redirection…</title>',
+    '<script>',
+    "if ('serviceWorker' in navigator) {",
+    "  navigator.serviceWorker.getRegistrations().then(function (list) { list.forEach(function (r) { r.unregister(); }); });",
+    "}",
+    "if (window.caches) {",
+    "  caches.keys().then(function (keys) { keys.forEach(function (k) { caches.delete(k); }); });",
+    "}",
+    "setTimeout(function () { location.replace(" + JSON.stringify(target) + "); }, 300);",
+    '<\/script>',
+    '</head>',
+    '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0b0f14;color:#e5e7eb;text-align:center;padding:24px">',
+    '<p>Cette application a déménagé.<br><a href="' + t + '" style="color:#E8F04F">Ouvrir la nouvelle version</a></p>',
+    '</body>',
+    '</html>',
+    ''
+  ].join('\n');
+}
+function hcBuildRedirectSw(target) {
+  const t = JSON.stringify(target);
+  return [
+    "/* Service worker de redirection généré par Hubcode */",
+    "const TARGET = " + t + ";",
+    "",
+    "self.addEventListener('install', function () {",
+    "  self.skipWaiting();",
+    "});",
+    "",
+    "self.addEventListener('activate', function (event) {",
+    "  event.waitUntil(",
+    "    caches.keys()",
+    "      .then(function (keys) { return Promise.all(keys.map(function (k) { return caches.delete(k); })); })",
+    "      .then(function () { return self.clients.matchAll({ type: 'window' }); })",
+    "      .then(function (list) { list.forEach(function (c) { if ('navigate' in c) c.navigate(TARGET).catch(function () {}); }); })",
+    "      .then(function () { return self.registration.unregister(); })",
+    "  );",
+    "});",
+    "",
+    "self.addEventListener('fetch', function (event) {",
+    "  if (event.request.mode === 'navigate') event.respondWith(Response.redirect(TARGET, 302));",
+    "});",
+    ""
+  ].join('\n');
+}
 function hcBuildSplashBlock(names) {
   const lines = [];
   SPLASH_SIZES.forEach(function(s) {
@@ -3296,7 +3368,8 @@ const INJECT_OPTIONS = [
   { key: 'head', icon: '📱', label: 'Balises mobiles', desc: 'viewport, theme-color, balises Apple et apple-touch-icon, sans doublon.' },
   { key: 'splash', icon: '🌅', label: 'Splashs iOS', desc: 'Liens vers les splash-*.png déjà présents (générés par ICON).' },
   { key: 'install', icon: '⬇️', label: 'Bouton « Installer l\'app »', desc: 'Bouton flottant avec aide d\'installation iOS / Android.' },
-  { key: 'signature', icon: '✍️', label: 'Signature', desc: 'Made by Laiche Brahim · 2026 · Paris, discrète en bas à gauche.' }
+  { key: 'signature', icon: '✍️', label: 'Signature', desc: 'Made by Laiche Brahim · 2026 · Paris, discrète en bas à gauche.' },
+  { key: 'redirect', icon: '↪️', label: 'Rediriger vers…', desc: 'Remplace index.html et sw.js par une redirection vers l\'adresse indiquée (anciennes copies d\'une app). Les autres options sont ignorées.' }
 ];
 const INJECT_OPTS_KEY = 'hubcode_inject_opts';
 let injectModalState = { owner: null, repo: null, branch: null };
@@ -3326,18 +3399,42 @@ function renderInjectOpts(sel) {
   const list = byId('injectOptsList');
   if (!list) return;
   list.innerHTML = INJECT_OPTIONS.map(function(x) {
+    const isRedirect = x.key === 'redirect';
     return '<label class="opt-row">' +
         '<div class="opt-row-text">' +
           '<div class="opt-row-title">' + x.icon + ' ' + escapeHtml(x.label) + '</div>' +
           '<div class="opt-row-desc">' + escapeHtml(x.desc) + '</div>' +
         '</div>' +
         '<span class="toggle-switch">' +
-          '<input type="checkbox" id="inj-' + x.key + '"' + (sel[x.key] ? ' checked' : '') + ' onchange="updateInjectModalUI()">' +
+          '<input type="checkbox" id="inj-' + x.key + '"' + (sel[x.key] && !isRedirect ? ' checked' : '') + ' onchange="updateInjectModalUI()' + (isRedirect ? ';hcToggleRedirectBox()' : '') + '">' +
           '<span class="toggle-slider"></span>' +
         '</span>' +
       '</label>';
-  }).join('');
+  }).join('') +
+    '<div id="injRedirectBox" style="display:none;padding:4px 2px 10px">' +
+      '<input type="url" id="injRedirectUrl" inputmode="url" autocomplete="off" placeholder="https://mekeirish.github.io/LD-Holding/"' +
+        ' value="' + escapeHtml(localStorage.getItem('hc_redirect_url') || '') + '"' +
+        ' oninput="localStorage.setItem(\'hc_redirect_url\', this.value.trim())"' +
+        ' style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:inherit;font:inherit">' +
+    '</div>';
   updateInjectModalUI();
+  hcToggleRedirectBox();
+}
+function hcToggleRedirectBox() {
+  const cb = byId('inj-redirect');
+  const box = byId('injRedirectBox');
+  if (box) box.style.display = cb && cb.checked ? 'block' : 'none';
+}
+function hcGetRedirectTarget(owner, repo) {
+  const input = byId('injRedirectUrl');
+  const raw = ((input && input.value) || localStorage.getItem('hc_redirect_url') || '').trim();
+  if (!raw) throw new Error('Adresse de redirection manquante');
+  let url;
+  try { url = new URL(raw); } catch (e) { throw new Error('Adresse de redirection invalide'); }
+  if (url.protocol !== 'https:') throw new Error('L\'adresse de redirection doit commencer par https://');
+  const ownUrl = ('https://' + owner + '.github.io/' + repo + '/').toLowerCase();
+  if ((url.href.toLowerCase() + '/').indexOf(ownUrl) === 0) throw new Error('La redirection pointe vers ce même dépôt');
+  return url.href;
 }
 function updateInjectModalUI() {
   const sel = getInjectSelection();
