@@ -2802,12 +2802,41 @@ function hcFixManifest(rawText, ctx) {
 
   return { text: JSON.stringify(m, null, 2) + '\n', changes: changes, manifest: m };
 }
+function hcSwPushBlock(repo) {
+  return [
+    "/* HUBCODE-PUSH:START */",
+    "self.addEventListener('push', function (event) {",
+    "  let data = {};",
+    "  try { data = event.data ? event.data.json() : {}; } catch (err) { data = { body: event.data ? event.data.text() : '' }; }",
+    "  event.waitUntil(self.registration.showNotification(data.title || " + JSON.stringify(String(repo)) + ", {",
+    "    body: data.body || '',",
+    "    icon: './icon.png',",
+    "    badge: './badge.png',",
+    "    tag: data.tag || 'app',",
+    "    renotify: true,",
+    "    data: { url: data.url || './' }",
+    "  }));",
+    "});",
+    "",
+    "self.addEventListener('notificationclick', function (event) {",
+    "  event.notification.close();",
+    "  const target = new URL((event.notification.data && event.notification.data.url) || './', self.location.href).href;",
+    "  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {",
+    "    for (const w of list) {",
+    "      if (w.url.indexOf(self.registration.scope) === 0 && 'focus' in w) return w.focus();",
+    "    }",
+    "    return self.clients.openWindow(target);",
+    "  }));",
+    "});",
+    "/* HUBCODE-PUSH:END */"
+  ].join('\n');
+}
 function hcDefaultSw(repo) {
   const prefix = 'hc-' + String(repo).toLowerCase().replace(/[^a-z0-9_.-]/g, '-') + '-';
   return [
     "/* Service worker généré par Hubcode */",
     "const PREFIX = " + JSON.stringify(prefix) + ";",
-    "const CACHE = PREFIX + 'v1';",
+    "const CACHE = PREFIX + 'v2';",
     "const ASSETS = ['./', './index.html', './manifest.json', './icon.png'];",
     "",
     "self.addEventListener('install', function (event) {",
@@ -2830,8 +2859,9 @@ function hcDefaultSw(repo) {
     "  if (req.method !== 'GET') return;",
     "  const url = new URL(req.url);",
     "  if (url.origin !== self.location.origin) return;",
+    "  const network = req.mode === 'navigate' ? fetch(req, { cache: 'no-cache' }) : fetch(req);",
     "  event.respondWith(",
-    "    fetch(req).then(function (res) {",
+    "    network.then(function (res) {",
     "      if (res && res.ok && res.status === 200) {",
     "        const copy = res.clone();",
     "        caches.open(CACHE).then(function (cache) { return cache.put(req, copy); }).catch(function () {});",
@@ -2844,28 +2874,42 @@ function hcDefaultSw(repo) {
     "    })",
     "  );",
     "});",
+    "",
+    hcSwPushBlock(repo),
     ""
   ].join('\n');
 }
 function hcPatchSw(text, repo) {
-  if (text === null || !text.trim()) return { text: hcDefaultSw(repo), state: 'created' };
-  if (/addEventListener\s*\(\s*["']fetch["']/.test(text) || /\bonfetch\b/.test(text) || /importScripts\s*\(|workbox/i.test(text)) {
-    return { text: text, state: 'ok' };
+  const fresh = hcDefaultSw(repo);
+  if (text === null || !text.trim()) return { text: fresh, state: 'created' };
+  if (text.trim().indexOf('/* Service worker généré par Hubcode */') === 0) {
+    return text === fresh ? { text: text, state: 'ok' } : { text: fresh, state: 'patched' };
   }
-  const block = [
-    '',
-    '',
-    '/* HUBCODE-SW:START */',
-    "self.addEventListener('fetch', function (event) {",
-    "  if (event.request.method !== 'GET') return;",
-    "  event.respondWith(fetch(event.request).catch(function () {",
-    "    return caches.match(event.request).then(function (r) { return r || Response.error(); });",
-    "  }));",
-    "});",
-    '/* HUBCODE-SW:END */',
-    ''
-  ].join('\n');
-  return { text: text.replace(/\s*$/, '') + block, state: 'patched' };
+  let out = text;
+  let changed = false;
+  const hasFetch = /addEventListener\s*\(\s*["']fetch["']/.test(out) || /\bonfetch\b/.test(out) || /importScripts\s*\(|workbox/i.test(out);
+  if (!hasFetch) {
+    const block = [
+      '',
+      '',
+      '/* HUBCODE-SW:START */',
+      "self.addEventListener('fetch', function (event) {",
+      "  if (event.request.method !== 'GET') return;",
+      "  event.respondWith(fetch(event.request).catch(function () {",
+      "    return caches.match(event.request).then(function (r) { return r || Response.error(); });",
+      "  }));",
+      "});",
+      '/* HUBCODE-SW:END */',
+      ''
+    ].join('\n');
+    out = out.replace(/\s*$/, '') + block;
+    changed = true;
+  }
+  if (!/addEventListener\s*\(\s*["']push["']/.test(out) && !/\bonpush\b/.test(out)) {
+    out = out.replace(/\s*$/, '') + '\n\n' + hcSwPushBlock(repo) + '\n';
+    changed = true;
+  }
+  return changed ? { text: out, state: 'patched' } : { text: out, state: 'ok' };
 }
 function hcBuildSplashBlock(names) {
   const lines = [];
